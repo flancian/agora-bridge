@@ -1,3 +1,7 @@
-# Twitter Agora bot.
+# Agora Bridge
 
-See https://anagora.org/node/an-agora.
+A connector Agora <-> social networks.
+
+Will initially support [[mastodon]] and [[twitter]].
+
+See https://anagora.org/node/an-agora for more.

@@ -1,8 +1,8 @@
 # Agora Bridge
 
-A connector Agora <-> the internet with a focus on the semantic web and social platforms.
+A connector Agora <-> the internet with a focus on personal knowledge graphs, the semantic web and social platforms.
 
-Will initially support [[mastodon]] and [[twitter]].
+Currently supports digital gardens stored on [[git]], as per https://anagora.org/agora-protocol. Support for [[mastodon]] and [[twitter]] will be worked on next.
 
 See https://anagora.org/node/an-agora for more.
 

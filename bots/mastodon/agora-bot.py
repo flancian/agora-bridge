@@ -19,9 +19,13 @@ import argparse
 import glob
 import logging
 import os
+import re
+import yaml
 
-from . import config
-from mastodon import Mastodon
+from mastodon import Mastodon, StreamListener
+
+WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
+PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
 
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -36,6 +40,62 @@ if args.verbose:
 else:
     L.setLevel(logging.INFO)
 
+def slugify(wikilink):
+    # trying to keep it light here for simplicity, wdyt?
+    # c.f. util.py in [[agora server]].
+    slug = (
+            wikilink.lower()
+            .strip()
+            .replace(' ', '-')
+            )
+    return slug
+
+class AgoraBot(StreamListener):
+    """main class for [[agora bot]] for [[mastodon]]."""
+    # this follows https://mastodonpy.readthedocs.io/en/latest/#streaming and https://github.com/ClearlyClaire/delibird/blob/master/main.py
+
+    def __init__(self, mastodon):
+        StreamListener.__init__(self)
+        self.mastodon = mastodon
+        L.info('[[agora bot]] started!')
+
+    def send_toot(self, msg, in_reply_to_id=None):
+        L.info('sending toot.')
+        status = self.mastodon.status_post(msg, in_reply_to_id=in_reply_to_id)
+
+    def handle_wikilink(self, status, match=None):
+        L.info(f'seen wikilink: {status}, {match}')
+        self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status)
+        wikilinks = WIKILINK_RE.findall(status.content)
+        lines = []
+        for wikilink in wikilinks:
+            slug = slugify(wikilink)
+            lines.append(f'https://anagora.org/{slug}')
+        self.send_toot('\n'.join(lines), status)
+
+    def handle_push(self, status, match=None):
+        L.info(f'seen push: {status}, {match}')
+        self.send_toot('If you ask the Agora to [[push]], it will try to push for you.', status)
+
+    def handle_mention(self, status):
+        """Handle toots mentioning the [[agora bot]], which may contain commands"""
+        L.info('Got a mention!')
+        # Process commands, in order of priority
+        cmds = [(PUSH_RE, self.handle_push),
+                (WIKILINK_RE, self.handle_wikilink)]
+        for regexp, handler in cmds:
+            match = regexp.search(status.content)
+            if match:
+                handler(status, match)
+                return
+
+    def on_notification(self, notification):
+        self.last_read_notification = notification.id
+        if notification.type == 'mention':
+            self.handle_mention(notification.status)
+        else:
+            L.info(f'received unhandled notification type: {notification.type}')
+
 def main():
     try:
         config = yaml.safe_load(args.config)
@@ -47,13 +107,12 @@ def main():
 	access_token = config['access_token'],
 	api_base_url = config['api_base_url'],
     )
+    
+    bot = AgoraBot(mastodon)
+    L.info('[[agora bot]] starting streaming.')
+    mastodon.stream_user(bot)
 
-    print(config)
-    print("items:"
-    for item in config:
-	print(item)
-
-    mastodon.status_post("[[agora bot]] v0.9 initializing, please wait.")
+    # mastodon.status_post("[[agora bot]] v0.9 initializing, please wait.")
 
 if __name__ == "__main__":
     main()

@@ -9,3 +9,5 @@
 # keep this secret.  
 # can generate one in https://botsin.space/settings/applications, create an application as needed.
 - access_token: keep-this-secret
+# the bot user in your chosen instance.
+- user: agora

@@ -115,8 +115,8 @@ def reply_to_tweet(api, reply, tweet):
         L.debug(f'error while replying: {e}')
 
 def handle_wikilink(api, tweet, match=None):
-    L.info(f'seen wikilink: {tweet.text}, {match}')
-    wikilinks = WIKILINK_RE.findall(tweet.text)
+    L.info(f'seen wikilink: {tweet.full_text}, {match}')
+    wikilinks = WIKILINK_RE.findall(tweet.full_text)
     lines = []
     for wikilink in wikilinks:
         slug = slugify(wikilink)
@@ -142,8 +142,8 @@ def check_mentions(api, since_id):
     L.info("Retrieving mentions")
     new_since_id = since_id
     for tweet in tweepy.Cursor(api.mentions_timeline,
-            since_id=since_id, count=200).items():
-        L.info(f'Processing tweet: {tweet.text}')
+            since_id=since_id, count=200, tweet_mode='extended').items():
+        L.info(f'Processing tweet: {tweet.full_text}')
         new_since_id = max(tweet.id, new_since_id)
         if not tweet.user.following:
             L.info('Following ', tweet.user)
@@ -153,7 +153,7 @@ def check_mentions(api, since_id):
         cmds = [(PUSH_RE, handle_push),
                 (WIKILINK_RE, handle_wikilink)]
         for regexp, handler in cmds:
-            match = regexp.search(tweet.text.lower())
+            match = regexp.search(tweet.full_text.lower())
             if match:
                 handler(api, tweet, match)
                 return new_since_id

@@ -19,6 +19,7 @@ import argparse
 import glob
 import logging
 import os
+import random
 import re
 import yaml
 
@@ -26,6 +27,7 @@ from mastodon import Mastodon, StreamListener
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
+P_HELP = 0.2
 
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -65,7 +67,8 @@ class AgoraBot(StreamListener):
 
     def handle_wikilink(self, status, match=None):
         L.info(f'seen wikilink: {status}, {match}')
-        self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status)
+        if random.random() < P_HELP:
+            self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status)
         wikilinks = WIKILINK_RE.findall(status.content)
         lines = []
         for wikilink in wikilinks:

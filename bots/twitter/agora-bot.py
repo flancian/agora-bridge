@@ -103,7 +103,20 @@ class AgoraBot(tweepy.StreamListener):
         else:
             L.info(f'received unhandled notification type: {notification.type}')
 
+def already_replied(api, tweet):
+    tweets = api.user_timeline()
+    for t in tweets:
+        if t.in_reply_to_status_id == tweet:
+            return True
+    return False
+
 def reply_to_tweet(api, reply, tweet):
+    # Twitter deduplication only *mostly* works so we can't depend on it.
+    # Alternatively it might be better to implement state/persistent cursors, but this is easier.
+    # TODO: move all of these to a class so we don't have to keep passing 'api' around.
+    if already_replied(api, tweet):
+        return
+
     try:
         api.update_status(
             status=reply,

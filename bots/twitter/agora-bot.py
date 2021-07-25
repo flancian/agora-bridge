@@ -36,8 +36,9 @@ P_HELP = 0.2
 
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
-parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=False, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--output-dir', dest='output_dir', type=argparse.FileType('r'), required=False, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -58,13 +59,17 @@ def slugify(wikilink):
     return slug
 
 def already_replied(api, tweet, upto=1):
-    tweets = api.user_timeline()
+    # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
+    # amazing that this is needed, but oh well.
+    tweets = tweepy.Cursor(api.search, since_id=tweet.id, q='to:'+tweet.user.screen_name+' from:an_agora', result_type='recent', timeout=999999).items(1000)
     count = 0
     for t in tweets:
-        if t.in_reply_to_status_id == tweet:
+        if t.in_reply_to_status_id == tweet.id:
             count += 1
             if count == upto:
+                L.info(f"{tweet.id}: cancelling reply, we seem to have already replied")
                 return True
+    L.info(f"{tweet.id}: reply pending")
     return False
 
 def reply_to_tweet(api, reply, tweet):
@@ -72,10 +77,15 @@ def reply_to_tweet(api, reply, tweet):
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
     # TODO: move all of these to a class so we don't have to keep passing 'api' around.
     if already_replied(api, tweet):
-        return
+        L.info("*** refrained to tweet thanks to dedup logic")
+        return False
+
+    if args.dry_run:
+        L.info("*** refrained to tweet thanks to dry run")
+        return False
 
     try:
-        api.update_status(
+        return api.update_status(
             status=reply,
             in_reply_to_status_id=tweet.id,
             auto_populate_reply_metadata=True
@@ -83,9 +93,10 @@ def reply_to_tweet(api, reply, tweet):
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
         L.debug(f'error while replying: {e}')
+        return False
 
 def handle_wikilink(api, tweet, match=None):
-    L.info(f'seen wikilink: {tweet.full_text}, {match}')
+    L.debug(f'seen wikilink, tweet: {tweet.full_text}, match: {match}')
     wikilinks = WIKILINK_RE.findall(tweet.full_text)
     lines = []
     for wikilink in wikilinks:
@@ -93,11 +104,12 @@ def handle_wikilink(api, tweet, match=None):
         lines.append(f'https://anagora.org/{slug}')
 
     response = '\n'.join(lines)
-    L.info(f'tweeting: "{response}" as response to tweet id {tweet.id}')
-    reply_to_tweet(api, response, tweet)
+    L.debug(f'tweeting: "{response}" as response to tweet id {tweet.id}')
+    if reply_to_tweet(api, response, tweet):
+        L.info(f'replied to {tweet.id}')
 
 def handle_push(api, tweet, match=None):
-    L.info(f'seen push: {status}, {match}')
+    L.debug(f'seen push: {tweet}, {match}')
     reply_to_tweet(api, 'If you ask the Agora to [[push]], it will try to push for you.', tweet)
 
 def handle_help(api, tweet, match=None):
@@ -107,6 +119,9 @@ def handle_help(api, tweet, match=None):
 
 def follow_followers(api):
     L.info("Retrieving and following followers")
+    if args.dry_run:
+        return False
+
     for follower in tweepy.Cursor(api.followers).items():
         if not follower.following:
             L.info(f"Following {follower.name}")
@@ -116,11 +131,12 @@ def check_mentions(api, since_id):
     # from https://realpython.com/twitter-bot-python-tweepy/
     L.info("Retrieving mentions")
     new_since_id = since_id
-    for tweet in tweepy.Cursor(api.mentions_timeline,
-            since_id=since_id, count=200, tweet_mode='extended').items():
-        L.info(f'Processing tweet: {tweet.full_text}')
+    tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
+    L.info(f'*** Processing up to {len(tweets)} mentions.')
+    for tweet in tweets:
+        L.debug(f'Processing tweet: {tweet.full_text}')
         new_since_id = max(tweet.id, new_since_id)
-        if not tweet.user.following:
+        if not tweet.user.following and not args.dry_run:
             L.info('Following ', tweet.user)
             tweet.user.follow()
         # Process commands, in order of priority
@@ -133,7 +149,7 @@ def check_mentions(api, since_id):
             match = regexp.search(tweet.full_text.lower())
             if match:
                 handler(api, tweet, match)
-                return new_since_id
+                break
     return new_since_id
 
 #class AgoraBot(tweepy.StreamListener):

@@ -23,6 +23,7 @@ import os
 import pickle
 import random
 import re
+import requests
 import time
 import tweepy
 import yaml
@@ -33,6 +34,8 @@ PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 # Unused for now.
 P_HELP = 0.2
+# Smell.
+CACHE = {}
 
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -58,12 +61,125 @@ def slugify(wikilink):
             )
     return slug
 
+def get_path(api, tweet, n=10):
+    """Gets the tweet and up to n ancestors in the thread, returns a list (path)."""
+    # I'd like the whole thread, but the API seems to make it weirdly hard to get *children*? I must be doing something wrong.
+    # TODO: implement.
+    path = [tweet.id]
+    while True:
+        n-=1
+        if n < 0:
+            break
+        parent = tweet.in_reply_to_status_id or 0
+        path.append(parent)
+        L.info(f'{tweet.id} had parent {parent}')
+        if parent == 0:
+            break
+        # go up
+        tweet = api.statuses_lookup([parent])
+    L.info(f'path to root: {path}')
+    return path
+
+# returns a bearer_header to attach to requests to the Twitter api v2 enpoints which are 
+# not yet supported by tweepy 
+def get_bearer_header():
+   uri_token_endpoint = 'https://api.twitter.com/oauth2/token'
+   key_secret = f"{config['consumer_key'}:{config['consumer_secret']}".encode('ascii')
+   b64_encoded_key = base64.b64encode(key_secret)
+   b64_encoded_key = b64_encoded_key.decode('ascii')
+
+   auth_headers = {
+       'Authorization': 'Basic {}'.format(b64_encoded_key),
+       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+       }
+
+   auth_data = {
+       'grant_type': 'client_credentials'
+       }
+
+   auth_resp = requests.post(uri_token_endpoint, headers=auth_headers, data=auth_data)
+   bearer_token = auth_resp.json()['access_token']
+   #bearer_token = 'AAAAAAAAAAAAAAAAAAAAAJkcMwEAAAAAASnCvzUgFZgpAukie8hA4F2CcGA%3DdD6P23cLDc3965QnWrwOoCRoWwFWQTSkUwGk4ocJY0ynb2lvj2'
+   #consumer_key = 'Cls83HpCxkRqxNrwQ8LfQfP9g'
+
+   bearer_header = {
+       'Accept-Encoding': 'gzip',
+       'Authorization': 'Bearer {}'.format(bearer_token),
+       'oauth_consumer_key': config['consumer_key']
+   }
+   return bearer_header
+
+# Returns the conversation_id of a tweet from v2 endpoint using the tweet id
+def get_conversation_id(tweet):
+    # from https://stackoverflow.com/questions/65398427/retrieving-specific-conversations-using-tweepy
+    # needed as tweepy doesn't support the 2.0 API yet
+   uri = 'https://api.twitter.com/2/tweets?'
+
+   params = {
+       'ids':tweet.id,
+       'tweet.fields':'conversation_id'
+   }
+   
+   bearer_header = get_bearer_header()
+   resp = requests.get(uri, headers=bearer_header, params=params)
+   return resp.json()['data'][0]['conversation_id']
+
+# Returns a conversation from the v2 enpoint  of type [<original_tweet_text>, <[replies]>]
+def get_conversation(conversation_id):
+    # from https://stackoverflow.com/questions/65398427/retrieving-specific-conversations-using-tweepy
+    # needed as tweepy doesn't support the 2.0 API yet
+   uri = 'https://api.twitter.com/2/tweets/search/recent?'
+
+   params = {'query': f'conversation_id:{conversation_id}',
+       'tweet.fields': 'in_reply_to_user_id', 
+       'tweet.fields':'conversation_id'
+   }
+   
+   bearer_header = twitter_auth.get_bearer_header()
+   resp = requests.get(uri, headers=bearer_header, params=params)
+   return resp.json()
+
+def get_my_replies(api, tweet):
+    conversation_id = get_conversation(tweet)
+    replies = tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items
+    breakpoint()
+
+def get_replies(api, tweet, upto=100):
+    # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
+    # but I hope this won't be needed?
+    return
+    replies = tweepy.Cursor(api.search, q='to:{}'.format(tweet.),
+				    since_id=tweet.id, tweet_mode='extended').items()
+    while True:
+	try:
+	    reply = replies.next()
+	    if not hasattr(reply, 'in_reply_to_status_id_str'):
+		continue
+	    if reply.in_reply_to_status_id == tweet_id:
+	       logging.info("reply of tweet:{}".format(reply.full_text))
+
+	except tweepy.RateLimitError as e:
+	    logging.error("Twitter api rate limit reached".format(e))
+	    time.sleep(60)
+	    continue
+
+	except tweepy.TweepError as e:
+	    logging.error("Tweepy error occured:{}".format(e))
+	    break
+
+	except StopIteration:
+	    break
+
+	except Exception as e:
+	    logger.error("Failed while fetching replies {}".format(e))
+	    break
+
 def already_replied(api, tweet, upto=1):
-    # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
     # amazing that this is needed, but oh well.
-    tweets = tweepy.Cursor(api.search, since_id=tweet.id, q='to:'+tweet.user.screen_name+' from:an_agora', result_type='recent', timeout=999999).items(1000)
+    # tweets = tweepy.Cursor(api.search, since_id=tweet.id, q='to:'+tweet.user.screen_name+' from:an_agora', result_type='recent').items(1000)
     count = 0
-    for t in tweets:
+    for t in CACHE['my_tweets']:
+        
         if t.in_reply_to_status_id == tweet.id:
             count += 1
             if count == upto:
@@ -132,6 +248,7 @@ def check_mentions(api, since_id):
     L.info("Retrieving mentions")
     new_since_id = since_id
     tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
+    CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
     L.info(f'*** Processing up to {len(tweets)} mentions.')
     for tweet in tweets:
         L.debug(f'Processing tweet: {tweet.full_text}')
@@ -207,8 +324,9 @@ def main():
         L.error(e)
 
     # Set up Twitter API.
-    CONSUMER_SECRET = config['consumer_secret']
-    ACCESS_TOKEN_SECRET = config['access_token_secret']
+    # Global is a smell.
+    global CONSUMER_SECRET = config['consumer_secret']
+    global ACCESS_TOKEN_SECRET = config['access_token_secret']
 
     auth = tweepy.OAuthHandler("lwDT7dRWwntKfadnkt0dOgYDE", CONSUMER_SECRET)
     auth.set_access_token("1315647335158943746-EI7o9RElt2MN2zIXHwnM49trpuqCSV", ACCESS_TOKEN_SECRET)
@@ -220,11 +338,12 @@ def main():
 
     while True: 
         try: 
+            # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
             follow_followers(api)
+            since_id = check_mentions(api, since_id)
         except tweepy.error.TweepError:
-            # this limit is easy to hit when ~20-30 people are in the backlog.
-            pass
-        since_id = check_mentions(api, since_id)
+            L.info("Backing off after exception.")
+            time.sleep(60)
         L.info('[[agora bot]] waiting.')
         time.sleep(10)
 

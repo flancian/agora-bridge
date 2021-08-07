@@ -84,7 +84,7 @@ def get_path(api, tweet, n=10):
 # not yet supported by tweepy 
 def get_bearer_header():
    uri_token_endpoint = 'https://api.twitter.com/oauth2/token'
-   key_secret = f"{config['consumer_key'}:{config['consumer_secret']}".encode('ascii')
+   key_secret = f"{config['consumer_key']}:{config['consumer_secret']}".encode('ascii')
    b64_encoded_key = base64.b64encode(key_secret)
    b64_encoded_key = b64_encoded_key.decode('ascii')
 
@@ -148,43 +148,46 @@ def get_replies(api, tweet, upto=100):
     # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
     # but I hope this won't be needed?
     return
-    replies = tweepy.Cursor(api.search, q='to:{}'.format(tweet.),
-				    since_id=tweet.id, tweet_mode='extended').items()
+    breakpoint()
+    replies = tweepy.Cursor(api.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
     while True:
-	try:
-	    reply = replies.next()
-	    if not hasattr(reply, 'in_reply_to_status_id_str'):
-		continue
-	    if reply.in_reply_to_status_id == tweet_id:
-	       logging.info("reply of tweet:{}".format(reply.full_text))
+        try:
+            reply = replies.next()
+            if not hasattr(reply, 'in_reply_to_status_id_str'):
+                continue
+            if reply.in_reply_to_status_id == tweet_id:
+                logging.info("reply of tweet:{}".format(reply.full_text))
 
-	except tweepy.RateLimitError as e:
-	    logging.error("Twitter api rate limit reached".format(e))
-	    time.sleep(60)
-	    continue
+        except tweepy.RateLimitError as err:
+            logging.error("Twitter api rate limit reached".format(e))
+            time.sleep(60)
+            continue
 
-	except tweepy.TweepError as e:
-	    logging.error("Tweepy error occured:{}".format(e))
-	    break
+        except tweepy.TweepError as e:
+            logging.error("Tweepy error occured:{}".format(e))
+            break
 
-	except StopIteration:
-	    break
+        except StopIteration:
+            break
 
-	except Exception as e:
-	    logger.error("Failed while fetching replies {}".format(e))
-	    break
+        except Exception as e:
+            logger.error("Failed while fetching replies {}".format(e))
+            break
 
 def already_replied(api, tweet, upto=1):
     # amazing that this is needed, but oh well.
     # tweets = tweepy.Cursor(api.search, since_id=tweet.id, q='to:'+tweet.user.screen_name+' from:an_agora', result_type='recent').items(1000)
+    # CACHE approach didn't work, unsure why, but it was crap so trying to ditch it anyway in favour of actually fetching all tweets for the right conversation -- which requires use of the v2 API that tweepy doesn't yet support.
     count = 0
-    for t in CACHE['my_tweets']:
-        
-        if t.in_reply_to_status_id == tweet.id:
-            count += 1
-            if count == upto:
-                L.info(f"{tweet.id}: cancelling reply, we seem to have already replied")
-                return True
+    #for t in CACHE['my_tweets']:
+    #    if t.in_reply_to_status_id == tweet.id:
+    #        count += 1
+    #        if count == upto:
+    #            L.info(f"{tweet.id}: cancelling reply, we seem to have already replied")
+    #            return True
+    conversation = get_conversation(get_conversation_id(tweet))
+    breakpoint()
+    
     L.info(f"{tweet.id}: reply pending")
     return False
 
@@ -324,12 +327,18 @@ def main():
         L.error(e)
 
     # Set up Twitter API.
-    # Global is a smell.
-    global CONSUMER_SECRET = config['consumer_secret']
-    global ACCESS_TOKEN_SECRET = config['access_token_secret']
+    # Global is a smell, but yolo.
+    global CONSUMER_KEY
+    global CONSUMER_SECRET
+    global ACCESS_TOKEN
+    global ACCESS_TOKEN_SECRET
+    CONSUMER_KEY = config['consumer_key']
+    CONSUMER_SECRET = config['consumer_secret']
+    ACCESS_TOKEN = config['access_token']
+    ACCESS_TOKEN_SECRET = config['access_token_secret']
 
-    auth = tweepy.OAuthHandler("lwDT7dRWwntKfadnkt0dOgYDE", CONSUMER_SECRET)
-    auth.set_access_token("1315647335158943746-EI7o9RElt2MN2zIXHwnM49trpuqCSV", ACCESS_TOKEN_SECRET)
+    auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
+    auth.set_access_token(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
 
     api = tweepy.API(auth)
     since_id = 1
@@ -341,7 +350,9 @@ def main():
             # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
             follow_followers(api)
             since_id = check_mentions(api, since_id)
-        except tweepy.error.TweepError:
+        except tweepy.error.TweepError as e:
+            L.error("Twitter api rate limit reached".format(e))
+            L.info(e)
             L.info("Backing off after exception.")
             time.sleep(60)
         L.info('[[agora bot]] waiting.')

@@ -17,6 +17,7 @@
 # -- [[flancian]]
 
 import argparse
+import base64
 import glob
 import logging
 import os
@@ -84,7 +85,7 @@ def get_path(api, tweet, n=10):
 # not yet supported by tweepy 
 def get_bearer_header():
    uri_token_endpoint = 'https://api.twitter.com/oauth2/token'
-   key_secret = f"{config['consumer_key']}:{config['consumer_secret']}".encode('ascii')
+   key_secret = f"{CONSUMER_KEY}:{CONSUMER_SECRET}".encode('ascii')
    b64_encoded_key = base64.b64encode(key_secret)
    b64_encoded_key = b64_encoded_key.decode('ascii')
 
@@ -105,7 +106,7 @@ def get_bearer_header():
    bearer_header = {
        'Accept-Encoding': 'gzip',
        'Authorization': 'Bearer {}'.format(bearer_token),
-       'oauth_consumer_key': config['consumer_key']
+       'oauth_consumer_key': CONSUMER_KEY
    }
    return bearer_header
 
@@ -132,23 +133,23 @@ def get_conversation(conversation_id):
 
    params = {'query': f'conversation_id:{conversation_id}',
        'tweet.fields': 'in_reply_to_user_id', 
-       'tweet.fields':'conversation_id'
+       'tweet.fields': 'conversation_id',
+       'tweet.fields': 'author_id'
    }
    
-   bearer_header = twitter_auth.get_bearer_header()
+   bearer_header = get_bearer_header()
    resp = requests.get(uri, headers=bearer_header, params=params)
    return resp.json()
 
 def get_my_replies(api, tweet):
     conversation_id = get_conversation(tweet)
     replies = tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items
-    breakpoint()
+    L.info(f'Got {len(replies)} replies: {replies}')
+
 
 def get_replies(api, tweet, upto=100):
     # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
     # but I hope this won't be needed?
-    return
-    breakpoint()
     replies = tweepy.Cursor(api.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
     while True:
         try:
@@ -156,7 +157,8 @@ def get_replies(api, tweet, upto=100):
             if not hasattr(reply, 'in_reply_to_status_id_str'):
                 continue
             if reply.in_reply_to_status_id == tweet_id:
-                logging.info("reply of tweet:{}".format(reply.full_text))
+                L.info("reply of tweet: {}".format(reply.full_text))
+                L.info("what do now? :)")
 
         except tweepy.RateLimitError as err:
             logging.error("Twitter api rate limit reached".format(e))
@@ -186,9 +188,17 @@ def already_replied(api, tweet, upto=1):
     #            L.info(f"{tweet.id}: cancelling reply, we seem to have already replied")
     #            return True
     conversation = get_conversation(get_conversation_id(tweet))
-    breakpoint()
-    
-    L.info(f"{tweet.id}: reply pending")
+    replies = []
+    try:
+        replies = conversation['data']
+    except KeyError:
+        L.info(f"### {tweet.id, tweet.full_text}:\n already_replied() -> reply pending")
+        return False
+    for reply in replies:
+        if reply['author_id'] == BOT_USER_ID:
+            L.info(f"### {tweet.id, tweet_full_text}:\n already_replied() -> bot already replied at least once.")
+            return True
+    L.info(f"### {tweet.id, tweet.full_text}:\n already_replied() -> reply pending")
     return False
 
 def reply_to_tweet(api, reply, tweet):
@@ -196,11 +206,11 @@ def reply_to_tweet(api, reply, tweet):
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
     # TODO: move all of these to a class so we don't have to keep passing 'api' around.
     if already_replied(api, tweet):
-        L.info("*** refrained to tweet thanks to dedup logic")
+        L.info("## didn't reply due to dedup logic")
         return False
 
     if args.dry_run:
-        L.info("*** refrained to tweet thanks to dry run")
+        L.info("## didn't reply due to dry run")
         return False
 
     try:
@@ -211,7 +221,7 @@ def reply_to_tweet(api, reply, tweet):
             )
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
-        L.debug(f'error while replying: {e}')
+        L.debug(f'## error while replying: {e}')
         return False
 
 def handle_wikilink(api, tweet, match=None):
@@ -252,12 +262,12 @@ def check_mentions(api, since_id):
     new_since_id = since_id
     tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
     CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
-    L.info(f'*** Processing up to {len(tweets)} mentions.')
+    L.info(f'*** Processing {len(tweets)} mentions.')
     for tweet in tweets:
-        L.debug(f'Processing tweet: {tweet.full_text}')
+        L.debug(f'# Processing tweet: {tweet.id, tweet.full_text}')
         new_since_id = max(tweet.id, new_since_id)
         if not tweet.user.following and not args.dry_run:
-            L.info('Following ', tweet.user)
+            L.info('## Following ', tweet.user)
             tweet.user.follow()
         # Process commands, in order of priority
         cmds = [
@@ -270,6 +280,7 @@ def check_mentions(api, since_id):
             if match:
                 handler(api, tweet, match)
                 break
+        L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
     return new_since_id
 
 #class AgoraBot(tweepy.StreamListener):
@@ -328,10 +339,12 @@ def main():
 
     # Set up Twitter API.
     # Global is a smell, but yolo.
+    global BOT_USER_ID 
     global CONSUMER_KEY
     global CONSUMER_SECRET
     global ACCESS_TOKEN
     global ACCESS_TOKEN_SECRET
+    BOT_USER_ID = config['bot_user_id']
     CONSUMER_KEY = config['consumer_key']
     CONSUMER_SECRET = config['consumer_secret']
     ACCESS_TOKEN = config['access_token']

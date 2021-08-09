@@ -247,27 +247,37 @@ def handle_wikilink(api, tweet, match=None):
 
 def is_friend(api, user):
     followers = get_followers(api)
+    if not followers:
+        L.info('*** Could not friend check due likely to a quota issue, failing closed.')
+        return False
+
     if any([u for u in followers if u.id == user.id]):
         L.info(f'#### @{user.screen_name} is a friend.')
         return True
+
     L.info(f'#### @{user.screen_name} is not yet a friend.')
     return False
 
 def handle_push(api, tweet, match=None):
     L.info(f'## Handling [[push]]: {match.group(0)}')
-    reply_to_tweet(api, 'If you ask an Agora to [[push]] and you are a [[friend]], the Agora will try to push for you.\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
+    reply_to_tweet(api, 'If you ask an Agora to [[push]] and you are a [[friend]], the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
 
+    # Retweet if coming from a friend.
     if not is_friend(api, tweet.user):
         L.info(f'### Not retweeting: not a known friend.')
         return
-    L.info(f'### Retweeting: from a friend.')
+    L.debug(f'### Retweeting: from a friend.')
 
     if args.dry_run:
-        L.info(f'### Retweeting: {tweet.full_text} by @{tweet.user.screen_name}.')
+        L.info(f'### Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
         L.info(f'### Skipping retweet due to dry run.')
     else:
-        L.info(f'### Retweeting: {tweet.full_text} by @{tweet.user.screen_name}.')
-        api.retweet(tweet.id)
+        L.info(f'### Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
+        try:
+            api.retweet(tweet.id)
+        except tweepy.error.TweepError as e:
+            L.info(f'### Skipping duplicate retweet.')
+
     # Also volunteer other links?
     # handle_wikilink(api, tweet, match)
 
@@ -287,7 +297,7 @@ def handle_default(api, tweet, match=None):
 def get_followers(api):
     L.info('*** get followers refreshing')
     try:
-        followers = tweepy.Cursor(api.followers).items()
+        followers = list(tweepy.Cursor(api.followers).items())
     except tweepy.error.RateLimitError:
         # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
         followers = []

@@ -22,6 +22,7 @@
 
 import argparse
 import base64
+import cachetools.func
 import glob
 import logging
 import os
@@ -245,11 +246,10 @@ def handle_wikilink(api, tweet, match=None):
         L.info(f'## Replied to {tweet.id}')
 
 def is_friend(api, user):
-    followers = tweepy.Cursor(api.followers).items()
-    if any([u for u in followers if u.id == user.id]):
-        L.info(f'#### {user} is a friend.')
+    if any([u for u in get_followers(api) if u.id == user.id]):
+        L.info(f'#### @{user.screen_name} is a friend.')
         return True
-    L.info(f'#### {user} is not a friend.')
+    L.info(f'#### @{user.screen_name} is not yet a friend.')
     return False
 
 def handle_push(api, tweet, match=None):
@@ -262,10 +262,10 @@ def handle_push(api, tweet, match=None):
     L.info(f'### Retweeting: from a friend.')
 
     if args.dry_run:
-        L.info(f'### Retweeting: {tweet.full_text} by {tweet.user.screen_name}.')
+        L.info(f'### Retweeting: {tweet.full_text} by @{tweet.user.screen_name}.')
         L.info(f'### Skipping retweet due to dry run.')
     else:
-        L.info(f'### Retweeting: {tweet.full_text} by {tweet.user.screen_name}.')
+        L.info(f'### Retweeting: {tweet.full_text} by @{tweet.user.screen_name}.')
         api.retweet(tweet.id)
     # Also volunteer other links?
     # handle_wikilink(api, tweet, match)
@@ -282,12 +282,18 @@ def handle_default(api, tweet, match=None):
     # perhaps hand back a link if we have a node that seems relevant?
     # reply_to_tweet(api, 'Would you like help?', tweet)
 
+@cachetools.func.ttl_cache(ttl=600)
+def get_followers(api):
+    followers = tweepy.Cursor(api.followers).items()
+    return followers
+
+
 def follow_followers(api):
     L.info("# Retrieving and following back followers")
     if args.dry_run:
         return False
 
-    for follower in tweepy.Cursor(api.followers).items():
+    for follower in get_followers(): 
         if not follower.following:
             L.info(f"## Following {follower.name} back")
             follower.follow()
@@ -302,7 +308,7 @@ def process_mentions(api, since_id):
     L.info(f'## Processing {total} mentions.')
     for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
-        L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by {tweet.user.screen_name}.')
+        L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by @{tweet.user.screen_name}.')
         new_since_id = min(tweet.id, new_since_id)
         if not tweet.user.following and not args.dry_run:
             L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
@@ -408,7 +414,6 @@ def main():
 
     while True: 
         try: 
-            # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
             since_id = process_mentions(api, since_id)
             follow_followers(api)
         except tweepy.error.TweepError as e:

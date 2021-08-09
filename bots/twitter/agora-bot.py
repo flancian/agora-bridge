@@ -33,8 +33,7 @@ import time
 import tweepy
 import yaml
 
-# Globals are a smell. This should all be in a class.
-# Bot logic globals
+# Bot logic globals.
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
@@ -42,10 +41,6 @@ HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 DEFAULT_RE = re.compile(r'.', re.IGNORECASE)
 # Unused for now.
 P_HELP = 0.2
-# API config
-BACKOFF = 60
-BACKOFF_MAX = 600
-# End globals, consider not adding more globals and instead moving to a class :)
 
 # argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
@@ -124,8 +119,8 @@ def get_bearer_header():
 
 # Returns the conversation_id of a tweet from v2 endpoint using the tweet id
 def get_conversation_id(tweet):
-    # from https://stackoverflow.com/questions/65398427/retrieving-specific-conversations-using-tweepy
-    # needed as tweepy doesn't support the 2.0 API yet
+   # from https://stackoverflow.com/questions/65398427/retrieving-specific-conversations-using-tweepy
+   # needed as tweepy doesn't support the 2.0 API yet
    uri = 'https://api.twitter.com/2/tweets?'
 
    params = {
@@ -135,7 +130,11 @@ def get_conversation_id(tweet):
    
    bearer_header = get_bearer_header()
    resp = requests.get(uri, headers=bearer_header, params=params)
-   return resp.json()['data'][0]['conversation_id']
+   try:
+       return resp.json()['data'][0]['conversation_id']
+   except json.decoder.JSONDecodeError:
+       L.error(f"*** Couldn't decode JSON message in get_conversation.")
+   return False
 
 # Returns a conversation from the v2 enpoint  of type [<original_tweet_text>, <[replies]>]
 def get_conversation(conversation_id):
@@ -245,7 +244,7 @@ def handle_wikilink(api, tweet, match=None):
         L.info(f'## Replied to {tweet.id}')
 
 def handle_push(api, tweet, match=None):
-    L.info(f'## Handling [[push]]: {tweet}, {match}')
+    L.info(f'## Handling [[push]]: {match.group(0)}')
     reply_to_tweet(api, 'If you ask an Agora to [[push]] for good, it will try to push for you: https://anagora.org/push.', tweet)
     # push(tweet)
 
@@ -351,7 +350,10 @@ def process_mentions(api, since_id):
 #            L.info(f'received unhandled notification type: {notification.type}')
 
 def main():
-    # This is a reasonable place to start reading, but see other globals up top.
+    # Globals are a smell. This should all be in a class. See also bot logic globals up top.
+    # API globals
+    global BACKOFF 
+    global BACKOFF_MAX
     global BOT_USER_ID 
     global CONSUMER_KEY
     global CONSUMER_SECRET
@@ -365,7 +367,9 @@ def main():
         L.fatal(e)
 
     # Set up Twitter API.
-    # Global is a smell, but yolo.
+    # Global, again, is a smell, but yolo.
+    BACKOFF = 60
+    BACKOFF_MAX = 600
     BOT_USER_ID = config['bot_user_id']
     CONSUMER_KEY = config['consumer_key']
     CONSUMER_SECRET = config['consumer_secret']

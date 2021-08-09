@@ -183,12 +183,24 @@ def already_replied(api, tweet, upto=1):
     except KeyError:
         L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> reply pending")
         return False
-    for reply in replies:
-        if reply['author_id'] == BOT_USER_ID:
-            L.info(f"### {tweet.id, tweet_full_text}:\n### already_replied() -> bot already replied at least once.")
-            return True
+
+    bot_replies = [reply for reply in replies if int(reply['author_id']) == BOT_USER_ID]
+    if bot_replies:
+        n = len(bot_replies)
+        bot_replies_text = [reply['text'] for reply in bot_replies]
+        L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> bot already replied {n} time(s).")
+        L.info(f"### {tweet.full_text} bot_replies: {bot_replies_text}:")
+        return n
     L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> reply pending")
     return False
+
+    #for reply in replies:
+    #    if int(reply['author_id']) == BOT_USER_ID:
+    #        L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> bot already replied at least once.")
+    #        return True
+    #    else:
+    #        L.info(f"### {reply['author_id']} is different to {BOT_USER_ID}.")
+    #        continue
 
 def reply_to_tweet(api, reply, tweet):
     # Twitter deduplication only *mostly* works so we can't depend on it.
@@ -245,7 +257,7 @@ def follow_followers(api):
             L.info(f"Following {follower.name}")
             follower.follow()
 
-def check_mentions(api, since_id):
+def process_mentions(api, since_id):
     # from https://realpython.com/twitter-bot-python-tweepy/
     L.info("Retrieving mentions")
     new_since_id = since_id
@@ -253,7 +265,7 @@ def check_mentions(api, since_id):
     CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
     L.info(f'*** Processing {len(tweets)} mentions.')
     for tweet in tweets:
-        L.debug(f'# Processing tweet: {tweet.id, tweet.full_text}')
+        L.info(f'# Processing tweet: {tweet.id, tweet.full_text}')
         new_since_id = max(tweet.id, new_since_id)
         if not tweet.user.following and not args.dry_run:
             L.info('## Following ', tweet.user)
@@ -270,6 +282,7 @@ def check_mentions(api, since_id):
                 handler(api, tweet, match)
                 break
         L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
+        L.info(f'*' * 80)
     return new_since_id
 
 #class AgoraBot(tweepy.StreamListener):
@@ -350,7 +363,7 @@ def main():
     while True: 
         try: 
             # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
-            since_id = check_mentions(api, since_id)
+            since_id = process_mentions(api, since_id)
             follow_followers(api)
         except tweepy.error.TweepError as e:
             L.error("Twitter api rate limit reached".format(e))

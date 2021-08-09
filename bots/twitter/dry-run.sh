@@ -1,2 +1,2 @@
 #!/bin/bash
-./run.sh --dry-run
+./run.sh --dry-run $@

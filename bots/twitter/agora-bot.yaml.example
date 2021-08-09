@@ -5,6 +5,15 @@
 #   - for instructions to set up a fully working [[agora]] using this and other repos, please consult to https://anagora.org/agora-setup.
 
 # user: an_agora
-# keep this secret.  
-consumer_secret: <here>
-access_token_secret: <here>
+# can be resolved with https://commentpicker.com/twitter-id.php, probably also other better tools (and through an API call: https://api.twitter.com/2/users/by/username/:username, field 'id'.
+# fill in what's declared REQUIRED below.
+# some fields marked as REQUIRED might not be, still figuring this out.
+bot_user_id: REQUIRED
+# consumer keys ("api key and secret")
+consumer_key: REQUIRED
+consumer_secret: REQUIRED
+# bearer token
+bearer_token: optional 
+# auth tokens ("access token and secret")
+access_token: REQUIRED
+access_token_secret: REQUIRED

@@ -146,7 +146,6 @@ def get_my_replies(api, tweet):
     replies = tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items
     L.info(f'Got {len(replies)} replies: {replies}')
 
-
 def get_replies(api, tweet, upto=100):
     # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
     # but I hope this won't be needed?
@@ -177,28 +176,18 @@ def get_replies(api, tweet, upto=100):
             break
 
 def already_replied(api, tweet, upto=1):
-    # amazing that this is needed, but oh well.
-    # tweets = tweepy.Cursor(api.search, since_id=tweet.id, q='to:'+tweet.user.screen_name+' from:an_agora', result_type='recent').items(1000)
-    # CACHE approach didn't work, unsure why, but it was crap so trying to ditch it anyway in favour of actually fetching all tweets for the right conversation -- which requires use of the v2 API that tweepy doesn't yet support.
-    count = 0
-    #for t in CACHE['my_tweets']:
-    #    if t.in_reply_to_status_id == tweet.id:
-    #        count += 1
-    #        if count == upto:
-    #            L.info(f"{tweet.id}: cancelling reply, we seem to have already replied")
-    #            return True
     conversation = get_conversation(get_conversation_id(tweet))
     replies = []
     try:
         replies = conversation['data']
     except KeyError:
-        L.info(f"### {tweet.id, tweet.full_text}:\n already_replied() -> reply pending")
+        L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> reply pending")
         return False
     for reply in replies:
         if reply['author_id'] == BOT_USER_ID:
-            L.info(f"### {tweet.id, tweet_full_text}:\n already_replied() -> bot already replied at least once.")
+            L.info(f"### {tweet.id, tweet_full_text}:\n### already_replied() -> bot already replied at least once.")
             return True
-    L.info(f"### {tweet.id, tweet.full_text}:\n already_replied() -> reply pending")
+    L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> reply pending")
     return False
 
 def reply_to_tweet(api, reply, tweet):
@@ -361,13 +350,12 @@ def main():
     while True: 
         try: 
             # tweets = api.user_timeline(since_id=tweet.id, count=200, include_rts=1, tweet_mode='extended')
-            follow_followers(api)
             since_id = check_mentions(api, since_id)
+            follow_followers(api)
         except tweepy.error.TweepError as e:
             L.error("Twitter api rate limit reached".format(e))
             L.info(e)
             L.info("Backing off after exception.")
-            time.sleep(60)
         L.info('[[agora bot]] waiting.')
         time.sleep(10)
 

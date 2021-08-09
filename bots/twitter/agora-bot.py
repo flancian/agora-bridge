@@ -16,6 +16,10 @@
 # an [[agora bridge]], that is, a utility that takes a .yaml file describing a set of [[personal knowledge graphs]] or [[digital gardens]] and pulls them to be consumed by other bridges or an [[agora server]]. 
 # -- [[flancian]]
 
+# I am sad about all the passing about of 'api', in the next refactor I'll put everything in a class.
+# I need to figure out if I should move to the streaming API somehow, but I sort of like the statelessness of this approach.
+# Also this and the mastodon version need to be refactored so they share at least bot logic code.
+
 import argparse
 import base64
 import glob
@@ -29,15 +33,21 @@ import time
 import tweepy
 import yaml
 
-# Globals.
+# Globals are a smell. This should all be in a class.
+# Bot logic globals
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
+# Always matches.
+DEFAULT_RE = re.compile(r'.', re.IGNORECASE)
 # Unused for now.
 P_HELP = 0.2
-# Smell.
-CACHE = {}
+# API config
+BACKOFF = 60
+BACKOFF_MAX = 600
+# End globals, consider not adding more globals and instead moving to a class :)
 
+# argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--output-dir', dest='output_dir', type=argparse.FileType('r'), required=False, help='The path to a directory where data will be dumped as needed.')
@@ -45,6 +55,7 @@ parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help=
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
 
+# logging
 logging.basicConfig()
 L = logging.getLogger('agora-bot')
 if args.verbose:
@@ -52,6 +63,7 @@ if args.verbose:
 else:
     L.setLevel(logging.INFO)
 
+# and we're off!
 def slugify(wikilink):
     # trying to keep it light here for simplicity, wdyt?
     # c.f. util.py in [[agora server]].
@@ -73,7 +85,7 @@ def get_path(api, tweet, n=10):
             break
         parent = tweet.in_reply_to_status_id or 0
         path.append(parent)
-        L.info(f'{tweet.id} had parent {parent}')
+        L.debug(f'{tweet.id} had parent {parent}')
         if parent == 0:
             break
         # go up
@@ -144,7 +156,7 @@ def get_conversation(conversation_id):
 def get_my_replies(api, tweet):
     conversation_id = get_conversation(tweet)
     replies = tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items
-    L.info(f'Got {len(replies)} replies: {replies}')
+    L.debug(f'Got {len(replies)} replies: {replies}')
 
 def get_replies(api, tweet, upto=100):
     # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
@@ -156,16 +168,17 @@ def get_replies(api, tweet, upto=100):
             if not hasattr(reply, 'in_reply_to_status_id_str'):
                 continue
             if reply.in_reply_to_status_id == tweet_id:
-                L.info("reply of tweet: {}".format(reply.full_text))
-                L.info("what do now? :)")
+                L.debug("reply of tweet: {}".format(reply.full_text))
+                L.debug("what do now? :)")
 
         except tweepy.RateLimitError as err:
-            logging.error("Twitter api rate limit reached".format(e))
-            time.sleep(60)
+            BACKOFF = max(BACKOFF * 2, MAX_BACKOFF)
+            L.error(f"Twitter api rate limit reached, backing off {BACKOFF} seconds.".format(e))
+            time.sleep(BACKOFF)
             continue
 
         except tweepy.TweepError as e:
-            logging.error("Tweepy error occured:{}".format(e))
+            L.error("Tweepy error occured:{}".format(e))
             break
 
         except StopIteration:
@@ -181,37 +194,29 @@ def already_replied(api, tweet, upto=1):
     try:
         replies = conversation['data']
     except KeyError:
-        L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> reply pending")
+        L.info(f"### already_replied() -> reply pending")
         return False
 
     bot_replies = [reply for reply in replies if int(reply['author_id']) == BOT_USER_ID]
     if bot_replies:
         n = len(bot_replies)
         bot_replies_text = [reply['text'] for reply in bot_replies]
-        L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> bot already replied {n} time(s).")
-        L.info(f"### {tweet.full_text} bot_replies: {bot_replies_text}:")
+        L.debug(f"### \n### already_replied() -> bot already replied {n} time(s).")
+        L.debug(f"### {tweet.full_text} bot_replies: {bot_replies_text}:")
         return n
-    L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> reply pending")
+    L.info(f"### already_replied() -> reply pending")
     return False
-
-    #for reply in replies:
-    #    if int(reply['author_id']) == BOT_USER_ID:
-    #        L.info(f"### {tweet.id, tweet.full_text}:\n### already_replied() -> bot already replied at least once.")
-    #        return True
-    #    else:
-    #        L.info(f"### {reply['author_id']} is different to {BOT_USER_ID}.")
-    #        continue
 
 def reply_to_tweet(api, reply, tweet):
     # Twitter deduplication only *mostly* works so we can't depend on it.
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
     # TODO: move all of these to a class so we don't have to keep passing 'api' around.
     if already_replied(api, tweet):
-        L.info("## didn't reply due to dedup logic")
+        L.info("### not replying due to dedup logic")
         return False
 
     if args.dry_run:
-        L.info("## didn't reply due to dry run")
+        L.info("### not replying due to dry run")
         return False
 
     try:
@@ -222,11 +227,12 @@ def reply_to_tweet(api, reply, tweet):
             )
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
-        L.debug(f'## error while replying: {e}')
+        L.debug(f'### error while replying: {e}')
         return False
 
 def handle_wikilink(api, tweet, match=None):
-    L.debug(f'seen wikilink, tweet: {tweet.full_text}, match: {match}')
+    L.info(f'## Handling wikilink: {match.group(0)}')
+    L.debug(f'## Handling wikilink tweet: {tweet.full_text}, match: {match}')
     wikilinks = WIKILINK_RE.findall(tweet.full_text)
     lines = []
     for wikilink in wikilinks:
@@ -234,55 +240,65 @@ def handle_wikilink(api, tweet, match=None):
         lines.append(f'https://anagora.org/{slug}')
 
     response = '\n'.join(lines)
-    L.debug(f'tweeting: "{response}" as response to tweet id {tweet.id}')
+    L.debug(f'## Tweeting: "{response}" as response to tweet id {tweet.id}')
     if reply_to_tweet(api, response, tweet):
-        L.info(f'replied to {tweet.id}')
+        L.info(f'## Replied to {tweet.id}')
 
 def handle_push(api, tweet, match=None):
-    L.debug(f'seen push: {tweet}, {match}')
-    reply_to_tweet(api, 'If you ask the Agora to [[push]], it will try to push for you.', tweet)
+    L.info(f'## Handling [[push]]: {tweet}, {match}')
+    reply_to_tweet(api, 'If you ask an Agora to [[push]] for good, it will try to push for you: https://anagora.org/push.', tweet)
+    # push(tweet)
 
 def handle_help(api, tweet, match=None):
-    L.info(f'seen help: {status}, {match}')
+    L.info(f'## Handling [[help]]: {tweet}, {match}')
+    # This is probably borked -- reply_to_tweet now only replies once because of how we do deduping.
+    # TODO: fix.
     reply_to_tweet(api, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', tweet, upto=2)
     reply_to_tweet(api, 'If you ask the Agora to [[push]], it will try to push for you.', tweet, upto=2)
 
+def handle_default(api, tweet, match=None):
+    L.info(f'## Handling default case, no clear intent present')
+    # perhaps hand back a link if we have a node that seems relevant?
+    # reply_to_tweet(api, 'Would you like help?', tweet)
+
 def follow_followers(api):
-    L.info("Retrieving and following followers")
+    L.info("# Retrieving and following back followers")
     if args.dry_run:
         return False
 
     for follower in tweepy.Cursor(api.followers).items():
         if not follower.following:
-            L.info(f"Following {follower.name}")
+            L.info(f"## Following {follower.name} back")
             follower.follow()
 
 def process_mentions(api, since_id):
     # from https://realpython.com/twitter-bot-python-tweepy/
-    L.info("Retrieving mentions")
+    L.info("## Retrieving mentions")
     new_since_id = since_id
     tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
-    CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
-    L.info(f'*** Processing {len(tweets)} mentions.')
+    # CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
+    L.info(f'## Processing {len(tweets)} mentions.')
     for tweet in tweets:
-        L.info(f'# Processing tweet: {tweet.id, tweet.full_text}')
+        L.debug(f'*' * 80)
+        L.info(f'## Processing tweet https://twitter.com/twitter/status/{tweet.id} by {tweet.user.screen_name}.')
         new_since_id = max(tweet.id, new_since_id)
         if not tweet.user.following and not args.dry_run:
-            L.info('## Following ', tweet.user)
+            L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
             tweet.user.follow()
         # Process commands, in order of priority
         cmds = [
                 (HELP_RE, handle_help),
                 (PUSH_RE, handle_push),
                 (WIKILINK_RE, handle_wikilink),
+                (DEFAULT_RE, handle_default),
                 ]
         for regexp, handler in cmds:
             match = regexp.search(tweet.full_text.lower())
             if match:
                 handler(api, tweet, match)
                 break
-        L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
-        L.info(f'*' * 80)
+        L.debug(f'## Processed tweet: {tweet.id, tweet.full_text}')
+        L.debug(f'*' * 80)
     return new_since_id
 
 #class AgoraBot(tweepy.StreamListener):
@@ -334,18 +350,21 @@ def process_mentions(api, since_id):
 #            L.info(f'received unhandled notification type: {notification.type}')
 
 def main():
-    try:
-        config = yaml.safe_load(args.config)
-    except yaml.YAMLError as e:
-        L.error(e)
-
-    # Set up Twitter API.
-    # Global is a smell, but yolo.
+    # This is a reasonable place to start reading, but see other globals up top.
     global BOT_USER_ID 
     global CONSUMER_KEY
     global CONSUMER_SECRET
     global ACCESS_TOKEN
     global ACCESS_TOKEN_SECRET
+
+    # Load config.
+    try:
+        config = yaml.safe_load(args.config)
+    except yaml.YAMLError as e:
+        L.fatal(e)
+
+    # Set up Twitter API.
+    # Global is a smell, but yolo.
     BOT_USER_ID = config['bot_user_id']
     CONSUMER_KEY = config['consumer_key']
     CONSUMER_SECRET = config['consumer_secret']
@@ -366,11 +385,12 @@ def main():
             since_id = process_mentions(api, since_id)
             follow_followers(api)
         except tweepy.error.TweepError as e:
-            L.error("Twitter api rate limit reached".format(e))
+            L.error("# Twitter api rate limit reached".format(e))
             L.info(e)
-            L.info("Backing off after exception.")
-        L.info('[[agora bot]] waiting.')
-        time.sleep(10)
+            BACKOFF = max(BACKOFF * 2, BACKOFF_MAX)
+            L.info("# Backing off {BACKOFF} after exception.")
+        L.info('# [[agora bot]] waiting.')
+        time.sleep(BACKOFF)
 
 if __name__ == "__main__":
     main()

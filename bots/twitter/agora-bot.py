@@ -324,9 +324,9 @@ def process_mentions(api, since_id):
         L.debug(f'*' * 80)
         L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by @{tweet.user.screen_name}.')
         new_since_id = min(tweet.id, new_since_id)
-        if not tweet.user.following and not args.dry_run:
-            L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
-            tweet.user.follow()
+        # if not tweet.user.following and not args.dry_run:
+        #    L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
+        #    tweet.user.follow()
         # Process commands, in order of priority
         cmds = [
                 (HELP_RE, handle_help),

@@ -308,7 +308,7 @@ def follow_followers(api):
     if args.dry_run:
         return False
 
-    for follower in get_followers(): 
+    for follower in get_followers(api): 
         if not follower.following:
             L.info(f"## Following {follower.name} back")
             follower.follow()

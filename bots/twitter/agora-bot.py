@@ -172,7 +172,7 @@ def get_replies(api, tweet, upto=100):
                 L.debug("what do now? :)")
 
         except tweepy.RateLimitError as err:
-            BACKOFF = max(BACKOFF * 2, MAX_BACKOFF)
+            BACKOFF = min(BACKOFF * 2, MAX_BACKOFF)
             L.error(f"Twitter api rate limit reached, backing off {BACKOFF} seconds.".format(e))
             time.sleep(BACKOFF)
             continue
@@ -244,9 +244,23 @@ def handle_wikilink(api, tweet, match=None):
     if reply_to_tweet(api, response, tweet):
         L.info(f'## Replied to {tweet.id}')
 
+def is_friend(api, user):
+    followers = tweepy.Cursor(api.followers).items()
+    if any([u for u in followers if u.id == user.id]):
+        L.info(f'#### {user} is a friend.')
+        return True
+    L.info(f'#### {user} is not a friend.')
+    return False
+
 def handle_push(api, tweet, match=None):
     L.info(f'## Handling [[push]]: {match.group(0)}')
-    reply_to_tweet(api, 'If you ask an Agora to [[push]] for good, it will try to push with you: https://anagora.org/push', tweet)
+    reply_to_tweet(api, 'If you ask an Agora to [[push]] and you are a [[friend]], the Agora will try to push for you.\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
+
+    if not is_friend(api, tweet.user):
+        L.info(f'### Not retweeting: not a known friend.')
+        return
+    L.info(f'### Retweeting: from a friend.')
+
     if args.dry_run:
         L.info(f'### Retweeting: {tweet.full_text} by {tweet.user.screen_name}.')
         L.info(f'### Skipping retweet due to dry run.')
@@ -289,7 +303,7 @@ def process_mentions(api, since_id):
     for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
         L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by {tweet.user.screen_name}.')
-        new_since_id = max(tweet.id, new_since_id)
+        new_since_id = min(tweet.id, new_since_id)
         if not tweet.user.following and not args.dry_run:
             L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
             tweet.user.follow()
@@ -400,7 +414,7 @@ def main():
         except tweepy.error.TweepError as e:
             L.error("# Twitter api rate limit reached".format(e))
             L.info(e)
-            BACKOFF = max(BACKOFF * 2, BACKOFF_MAX)
+            BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
             L.info(f"# Backing off {BACKOFF} after exception.")
         L.info('# [[agora bot]] waiting.')
         time.sleep(BACKOFF)

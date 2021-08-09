@@ -277,10 +277,11 @@ def process_mentions(api, since_id):
     new_since_id = since_id
     tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
     # CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
-    L.info(f'## Processing {len(tweets)} mentions.')
-    for tweet in tweets:
+    total = len(tweets)
+    L.info(f'## Processing {total} mentions.')
+    for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
-        L.info(f'## Processing tweet https://twitter.com/twitter/status/{tweet.id} by {tweet.user.screen_name}.')
+        L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by {tweet.user.screen_name}.')
         new_since_id = max(tweet.id, new_since_id)
         if not tweet.user.following and not args.dry_run:
             L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)

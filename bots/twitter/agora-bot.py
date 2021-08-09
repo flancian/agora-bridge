@@ -34,9 +34,10 @@ import tweepy
 import yaml
 
 # Bot logic globals.
-WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
-PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
+# Regexes are in order of precedence.
+PUSH_RE = re.compile(r'\[\[push\]\](\s(\S+))?', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
+WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 # Always matches.
 DEFAULT_RE = re.compile(r'.', re.IGNORECASE)
 # Unused for now.
@@ -245,8 +246,15 @@ def handle_wikilink(api, tweet, match=None):
 
 def handle_push(api, tweet, match=None):
     L.info(f'## Handling [[push]]: {match.group(0)}')
-    reply_to_tweet(api, 'If you ask an Agora to [[push]] for good, it will try to push for you: https://anagora.org/push.', tweet)
-    # push(tweet)
+    reply_to_tweet(api, 'If you ask an Agora to [[push]] for good, it will try to push with you: https://anagora.org/push', tweet)
+    if args.dry_run:
+        L.info(f'### Retweeting: {tweet.full_text} by {tweet.user.screen_name}.')
+        L.info(f'### Skipping retweet due to dry run.')
+    else:
+        L.info(f'### Retweeting: {tweet.full_text} by {tweet.user.screen_name}.')
+        api.retweet(tweet.id)
+    # Also volunteer other links?
+    # handle_wikilink(api, tweet, match)
 
 def handle_help(api, tweet, match=None):
     L.info(f'## Handling [[help]]: {tweet}, {match}')
@@ -393,7 +401,7 @@ def main():
             L.error("# Twitter api rate limit reached".format(e))
             L.info(e)
             BACKOFF = max(BACKOFF * 2, BACKOFF_MAX)
-            L.info("# Backing off {BACKOFF} after exception.")
+            L.info(f"# Backing off {BACKOFF} after exception.")
         L.info('# [[agora bot]] waiting.')
         time.sleep(BACKOFF)
 

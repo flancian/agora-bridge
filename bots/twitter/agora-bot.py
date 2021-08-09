@@ -311,7 +311,10 @@ def follow_followers(api):
     for follower in get_followers(api): 
         if not follower.following:
             L.info(f"## Following {follower.name} back")
-            follower.follow()
+            try:
+                follower.follow()
+            except tweepy.error.TweepError:
+                L.error(f"## Error, perhaps due to Twitter follower list inconsistencies.")
 
 def process_mentions(api, since_id):
     # from https://realpython.com/twitter-bot-python-tweepy/

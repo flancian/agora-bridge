@@ -246,7 +246,8 @@ def handle_wikilink(api, tweet, match=None):
         L.info(f'## Replied to {tweet.id}')
 
 def is_friend(api, user):
-    if any([u for u in get_followers(api) if u.id == user.id]):
+    followers = get_followers(api)
+    if any([u for u in followers if u.id == user.id]):
         L.info(f'#### @{user.screen_name} is a friend.')
         return True
     L.info(f'#### @{user.screen_name} is not yet a friend.')
@@ -284,9 +285,13 @@ def handle_default(api, tweet, match=None):
 
 @cachetools.func.ttl_cache(ttl=600)
 def get_followers(api):
-    followers = tweepy.Cursor(api.followers).items()
+    L.info('*** get followers refreshing')
+    try:
+        followers = tweepy.Cursor(api.followers).items()
+    except tweepy.error.RateLimitError:
+        # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+        followers = []
     return followers
-
 
 def follow_followers(api):
     L.info("# Retrieving and following back followers")
@@ -303,7 +308,6 @@ def process_mentions(api, since_id):
     L.info("## Retrieving mentions")
     new_since_id = since_id
     tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
-    # CACHE['my_tweets'] = api.search(since_id=since_id, q='from:an_agora', result_type='recent')
     total = len(tweets)
     L.info(f'## Processing {total} mentions.')
     for n, tweet in enumerate(tweets):
@@ -413,12 +417,13 @@ def main():
     # api.update_status('[[agora bot]] v0.9 for Twitter starting, please wait.')
 
     while True: 
+        since_id = process_mentions(api, since_id)
+        follow_followers(api)
         try: 
-            since_id = process_mentions(api, since_id)
-            follow_followers(api)
+            pass
         except tweepy.error.TweepError as e:
-            L.error("# Twitter api rate limit reached".format(e))
             L.info(e)
+            L.error("# Twitter api rate limit reached".format(e))
             BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
             L.info(f"# Backing off {BACKOFF} after exception.")
         L.info('# [[agora bot]] waiting.')

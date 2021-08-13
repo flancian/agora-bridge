@@ -25,10 +25,12 @@ from multiprocessing import Pool, JoinableQueue, Process
 import subprocess
 
 def dir_path(string):
-    if os.path.isdir(string):
-        return os.path.abspath(string)
-    else:
-        raise NotADirectoryError(string)
+    if not os.path.isdir(string):
+        print(f"Trying to create {string}.")
+        output = subprocess.run(['mkdir', '-p', string], capture_output=True)
+        if output.stderr:
+            L.error(output.stderr)
+    return os.path.abspath(string)
 
 parser = argparse.ArgumentParser(description='Agora Bridge')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to a YAML file describing the digital gardens to consume.')
@@ -37,7 +39,7 @@ parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help=
 args = parser.parse_args()
 
 logging.basicConfig()
-L = logging.getLogger('gardens')
+L = logging.getLogger('pull')
 if args.verbose:
     L.setLevel(logging.DEBUG)
 else:

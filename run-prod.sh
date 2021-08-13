@@ -14,4 +14,4 @@
 # limitations under the License.
 
 . venv/bin/activate 
-./gardens.py --config ~/agora/gardens.yaml --output-dir ~/agora/garden
+./pull.py --config ~/agora/gardens.yaml --output-dir ~/agora/garden

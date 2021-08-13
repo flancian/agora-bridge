@@ -22,7 +22,7 @@ The following is an example for a deployment in which both agora-bridge (this re
 
 ```
 . venv/bin/activate
-~/agora-bridge/gardens.py --config ~/agora/gardens.yaml --output-dir ~/agora/garden 
+~/agora-bridge/pull.py --config ~/agora/gardens.yaml --output-dir ~/agora/garden 
 ```
 
 

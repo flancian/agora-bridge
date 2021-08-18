@@ -1,0 +1,20 @@
+{
+  "name": "twitter-bridge",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.17.1",
+    "git-http-backend": "^1.0.2",
+    "isomorphic-git": "^1.8.2",
+    "load-json-file": "^6.2.0",
+    "node-fetch": "^2.6.1",
+    "source-map-support": "^0.5.19",
+    "string-strip-html": "^8.3.0"
+  }
+}

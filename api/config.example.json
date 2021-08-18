@@ -2,5 +2,6 @@
     "bearer": "INSERT TWITTER ACCESS/BEARER TOKEN FROM APP SETTINGS",
     "twitter": [{"username": "flancian", "agoraUser": "flancian"}, {"username": "flanciavera", "agoraUser": "vera"}],
     "activity": [{"username": "flancian", "host": "social.coop", "agoraUser": "flancian"}],
-    "repoPath": "/path/to/managed/garden"
+    "repoPath": "/path/to/managed/garden",
+    "repoYaml": "../garden.yaml"
 }

@@ -20,6 +20,13 @@ app.put('/node', async (req,res) => {
     await git.commit({ fs, dir, author: { name: "agora" }, message: `agora commit ${Date()}` })
     res.send('saved')
 })
+app.put('/repo', async (req,res) => {
+    config = await loadFile("config.json")
+    const yaml = config.repoYaml
+    fs.appendFileSync(yaml, `\n- target: ${req.body.target}\nurl: ${req.body.url}\nformat: ${req.body.format}`);
+    res.send('saved')
+
+})
 app.listen(port, () => console.log("starting server"))
 
 const URL = "https://api.twitter.com"

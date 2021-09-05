@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
-      "sourceMap": true,
+      // "sourceMap": true,
+      "inlineSourceMap": true
     },
     "files":["app.ts"]
   }

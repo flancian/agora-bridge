@@ -6,7 +6,9 @@ import git from 'isomorphic-git'
 import {server} from "./git-backend"
 import { stripHtml } from "string-strip-html";
 import * as express from 'express'
+var cors = require('cors')
 const app = express()
+app.use(cors())
 const port = 3000
 app.use(express.json())
 app.put('/node', async (req,res) => {
@@ -24,7 +26,7 @@ app.put('/repo', async (req,res) => {
     config = await loadFile("config.json")
     const yaml = config.repoYaml
     fs.appendFileSync(yaml, `\n- target: ${req.body.target}\nurl: ${req.body.url}\nformat: ${req.body.format}`);
-    res.send('saved')
+    res.send({status: "saved"})
 
 })
 app.listen(port, () => console.log("starting server"))
@@ -88,4 +90,4 @@ async function main() {
 
 // main()
 
-server.listen(5000)
+server.listen(8000)

@@ -36,6 +36,7 @@ parser = argparse.ArgumentParser(description='Agora Bridge')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to a YAML file describing the digital gardens to consume.')
 parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where the digital gardens will be stored (one subdirectory per user).')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -86,7 +87,7 @@ def worker():
         # if this is a pull, schedule the same task for another run later.
         if task[0] == git_pull:
             Q.put(task)
-        time.sleep(0.1)
+        time.sleep(args.delay)
 
 def main():
 

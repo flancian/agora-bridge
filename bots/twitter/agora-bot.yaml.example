@@ -17,3 +17,5 @@ bearer_token: optional
 # auth tokens ("access token and secret")
 access_token: REQUIRED
 access_token_secret: REQUIRED
+# optional: never react to tweets older than this
+since_id: 1

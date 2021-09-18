@@ -24,6 +24,7 @@ import argparse
 import base64
 import cachetools.func
 import glob
+import json
 import logging
 import os
 import pickle
@@ -152,7 +153,10 @@ def get_conversation(conversation_id):
    
    bearer_header = get_bearer_header()
    resp = requests.get(uri, headers=bearer_header, params=params)
-   return resp.json()
+   try:
+       return resp.json()
+   except json.decoder.JSONDecodeError:
+       L.error(f"*** Couldn't decode JSON message in get_conversation.")
 
 def get_my_replies(api, tweet):
     conversation_id = get_conversation(tweet)
@@ -191,6 +195,10 @@ def get_replies(api, tweet, upto=100):
 
 def already_replied(api, tweet, upto=1):
     conversation = get_conversation(get_conversation_id(tweet))
+    if not conversation:
+        L.error(f"### already_replied() -> error retrieving conversation, aborting reply.")
+        return True
+
     replies = []
     try:
         replies = conversation['data']
@@ -326,7 +334,7 @@ def process_mentions(api, since_id):
     for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
         L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by @{tweet.user.screen_name}.')
-        new_since_id = min(tweet.id, new_since_id)
+        new_since_id = max(tweet.id, new_since_id)
         # if not tweet.user.following and not args.dry_run:
         #    L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
         #    tweet.user.follow()
@@ -413,19 +421,19 @@ def main():
 
     # Set up Twitter API.
     # Global, again, is a smell, but yolo.
-    BACKOFF = 60
+    BACKOFF = 15
     BACKOFF_MAX = 600
     BOT_USER_ID = config['bot_user_id']
     CONSUMER_KEY = config['consumer_key']
     CONSUMER_SECRET = config['consumer_secret']
     ACCESS_TOKEN = config['access_token']
     ACCESS_TOKEN_SECRET = config['access_token_secret']
+    since_id = config['since_id']
 
     auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
     auth.set_access_token(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
 
     api = tweepy.API(auth)
-    since_id = 1
     L.info('[[agora bot]] starting.')
     # api.update_status('[[agora bot]] v0.9 for Twitter starting, please wait.')
 

@@ -7,7 +7,8 @@ import {server} from "./git-backend"
 import { stripHtml } from "string-strip-html";
 import * as express from 'express'
 const app = express()
-const port = 3141
+const portApi = 3141
+const portGit = 3142
 app.use(express.json())
 app.put('/node', async (req,res) => {
     config = await loadFile("config.json")
@@ -27,7 +28,13 @@ app.put('/repo', async (req,res) => {
     res.send('saved')
 
 })
-app.listen(port, () => console.log("starting server"))
+app.get('/', async (req,res) => {
+    config = await loadFile("config.json")
+    const dir = config.repoPath
+    res.send('Welcome to the nascent Agora API! Available endpoints: PUT {/node, /repo}.')
+})
+
+app.listen(portApi, () => console.log("starting server"))
 
 const URL = "https://api.twitter.com"
 let config
@@ -88,4 +95,6 @@ async function main() {
 
 // main()
 
-server.listen(5000)
+// api on portApi, default 3141, see above.
+// git repos on portGit, default 3142.
+server.listen(portGit)

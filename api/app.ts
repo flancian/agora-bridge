@@ -7,7 +7,7 @@ import {server} from "./git-backend"
 import { stripHtml } from "string-strip-html";
 import * as express from 'express'
 const app = express()
-const port = 3000
+const port = 3141
 app.use(express.json())
 app.put('/node', async (req,res) => {
     config = await loadFile("config.json")

@@ -68,17 +68,17 @@ class AgoraBot(StreamListener):
     def handle_wikilink(self, status, match=None):
         L.info(f'seen wikilink: {status}, {match}')
         if random.random() < P_HELP:
-            self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status)
+            self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status.id)
         wikilinks = WIKILINK_RE.findall(status.content)
         lines = []
         for wikilink in wikilinks:
             slug = slugify(wikilink)
             lines.append(f'https://anagora.org/{slug}')
-        self.send_toot('\n'.join(lines), status)
+        self.send_toot('\n'.join(lines), status.id)
 
     def handle_push(self, status, match=None):
         L.info(f'seen push: {status}, {match}')
-        self.send_toot('If you ask the Agora to [[push]], it will try to push for you.', status)
+        self.send_toot('If you ask the Agora to [[push]], it will try to push for you.', status.id)
 
     def handle_mention(self, status):
         """Handle toots mentioning the [[agora bot]], which may contain commands"""

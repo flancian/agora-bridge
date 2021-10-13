@@ -9,3 +9,13 @@ This is a part of Agora Bridge that aims to do the following:
 - Serve managed git repositories. This is intended for use by both the Agora (which will treat these as any other git source) and users that want to fork the managed repositories.
 
 Code is Typescript/Node. Use `./run-prod.sh` to run. Status: alpha.
+
+## Testing
+
+Here are some example curl invocations to interact with the API. Reach out if you need a hand!
+
+Add a note `test.md` in the managed repository, with content `test content`:
+
+```
+curl -H 'Content-Type: application/json' -X PUT -d '{"name":  "test", "content": "test content"}' localhost:3141/node 
+```

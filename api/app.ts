@@ -24,7 +24,7 @@ app.put('/node', async (req,res) => {
 app.put('/repo', async (req,res) => {
     config = await loadFile("config.json")
     const yaml = config.repoYaml
-    fs.appendFileSync(yaml, `\n- target: ${req.body.target}\nurl: ${req.body.url}\nformat: ${req.body.format}`);
+    fs.appendFileSync(yaml, `\n- target: ${req.body.target}\n  url: ${req.body.url}\n  format: ${req.body.format}`);
     res.send('saved')
 
 })

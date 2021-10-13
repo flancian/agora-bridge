@@ -17,5 +17,11 @@ Here are some example curl invocations to interact with the API. Reach out if yo
 Add a note `test.md` in the managed repository, with content `test content`:
 
 ```
-curl -H 'Content-Type: application/json' -X PUT -d '{"name":  "test", "content": "test content"}' localhost:3141/node 
+$ curl -H 'Content-Type: application/json' -X PUT -d '{"name":  "test", "content": "test content"}' localhost:3141/node 
+```
+
+Add a new git repository to the registry (defaults to `gardens.yaml`):
+
+```
+$ curl -H 'Content-Type: application/json' -X PUT -d '{"target":  "username", "url": "https://github.com/flancian/flancian-example", "format": "foam"}' localhost:3141/repo
 ```

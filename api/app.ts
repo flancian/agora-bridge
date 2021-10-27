@@ -13,7 +13,8 @@ app.use(express.json())
 app.put('/node', async (req,res) => {
     config = await loadFile("config.json")
     console.log(req.body)
-    const dir = config.repoPath
+    const repo = config.repoPath
+    const dir = `${repo}/${req.body.user}`
     await fs.promises.mkdir(dir, { recursive: true })
     await git.init({ fs, dir })
     fs.writeFileSync(`${dir}/${req.body.name}.md`, req.body.content)

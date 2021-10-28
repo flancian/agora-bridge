@@ -1,26 +1,42 @@
 (ns fedwiki.app
   (:require
-;;    [clojure.java.shell :refer (sh)]
    [clojure.data.json :as json]
    [clojure.java.io]
    [clojure.string]
+   [clojure.edn]
    ;
    ))
 
-(def output "/home/vera/agora/garden/vera.wiki.anagora.org")
 
+(defn host-to-json [host] (slurp (str "http://" host "/system/export.json")))
 
-(defn entries [pages]
-  (vec (for [file pages]
-         (let [page (slurp file)
-               doc (json/read-str page :key-fn keyword)
-               story (doc :story)
-               texts (for [e story] (e :text))
-               body (str (clojure.string/join "\n\n" texts) "\n")
-               name (last (clojure.string/split file #"/"))]
-           {:name name :body body}))))
+(defn mkdir [host] 
+  (let [slug (clojure.string/replace host #"\." "-")
+        config (slurp "config.edn")
+        path (str ((clojure.edn/read-string config) :garden-path) slug)]
+    (.mkdir (java.io.File. path))
+    path)
+  )
 
-(defn run []
-  (let [pages (mapv str (filter #(.isFile %) (file-seq (clojure.java.io/file "/home/vera/.wiki/pages"))))
-        entries (entries pages)]
-    (vec (for [entry entries] (spit (str output "/" (entry :name) ".md") (entry :body))))))
+(defn page-to-content [page] (let [story (page :story)
+                                   texts (for [e story] (e :text))
+                                   content (str (clojure.string/join "\n\n" texts) "\n")]
+                               content))
+
+(defn json-to-pages [json]
+  (let [body (json/read-str json :key-fn keyword)]
+    (for [[slug page] body]
+      (let [content (page-to-content page)]
+        {:slug (name slug) :content content}))))
+
+(defn run [host]
+  
+  (let [json (host-to-json host)
+        pages (json-to-pages json)
+        path (mkdir host)]
+    (println path)
+    (doseq [page pages] 
+      
+      (println page)
+      (spit (str path "/" (page :slug) ".md") (page :content)))))
+

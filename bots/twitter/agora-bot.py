@@ -23,6 +23,7 @@
 import argparse
 import base64
 import cachetools.func
+import datetime
 import glob
 import json
 import logging
@@ -137,7 +138,7 @@ def get_conversation_id(tweet):
    try:
        return resp.json()['data'][0]['conversation_id']
    except json.decoder.JSONDecodeError:
-       L.error(f"*** Couldn't decode JSON message in get_conversation.")
+       L.error(f"*** Couldn't decode JSON message in get_conversation_id.")
    return False
 
 # Returns a conversation from the v2 enpoint  of type [<original_tweet_text>, <[replies]>]
@@ -179,13 +180,16 @@ def get_my_replies(api, tweet):
     try:
         return resp.json()['data']
     except json.decoder.JSONDecodeError:
-        L.error(f"*** Couldn't decode JSON message in get_conversation.")
+        L.error(f"*** Couldn't decode JSON message in get_my_replies.")
         # hack hack
         return default
     except KeyError:
-        L.error(f"*** Couldn't decode JSON message in get_conversation.")
+        L.error(f"*** KeyError in get_my_replies.")
         # hack hack
-        L.info(f"*** get_my_replies didn't find a reply.")
+        L.info(f"*** get_my_replies got a KeyError (didn't find a reply?).")
+        # this happens for https://twitter.com/flancian/status/1443695517800730624
+        # doesn't find https://twitter.com/an_agora/status/1444756578238861321 for some reason
+        # also for https://twitter.com/flancian/status/1443693643513085959
         return default
 
     L.info(f"*** get_my_replies fell through.")
@@ -388,28 +392,36 @@ def process_mentions(api, since_id):
     # from https://realpython.com/twitter-bot-python-tweepy/
     L.info("# Retrieving mentions")
     new_since_id = since_id
+    # only process tweets newer than n days -- works around the worst of the twitter search restrictions, as
+    # for old tweets sometimes we might not see our own responses :(
+    start_time = datetime.datetime.now () - datetime.timedelta(days=1)
     # explicit mentions
     try:
         mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
         L.info(f'# Processing {len(mentions)} mentions.')
+        # hack
     except:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-        L.info(f'# Twitter gave up on us.')
+        L.exception(f'# Twitter gave up on us.')
         mentions = []
-    # our tweets and those from users that follow us
+    # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
     try:
         timeline = list(tweepy.Cursor(api.home_timeline, count=200, tweet_mode='extended').items())
         L.info(f'# Processing {len(timeline)} timeline tweets.')
     except:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-        L.info(f'# Twitter gave up on us.')
+        L.exception(f'# Twitter gave up on us.')
         timeline = []
 
     tweets = mentions + timeline
-    L.info(f'# Processing {len(tweets)} tweets.')
+    L.info(f'# Processing {len(tweets)} tweets overall.')
     for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
         L.info(f'# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}')
+        if tweet.created_at < start_time:
+            L.info(f'-> tweet too old, beyond current threshold.')
+            continue
+
         # if not tweet.user.following and not args.dry_run:
         #    L.info(f'# Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
         #    tweet.user.follow()

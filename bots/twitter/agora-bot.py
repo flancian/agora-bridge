@@ -190,7 +190,8 @@ def get_my_replies(api, tweet):
         # this happens for https://twitter.com/flancian/status/1443695517800730624
         # doesn't find https://twitter.com/an_agora/status/1444756578238861321 for some reason
         # also for https://twitter.com/flancian/status/1443693643513085959
-        return default
+        # but they are old old, I think now that we only process newer tweets this can probably return []
+        return []
 
     L.info(f"*** get_my_replies fell through.")
     return default

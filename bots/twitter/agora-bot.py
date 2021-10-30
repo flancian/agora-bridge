@@ -173,12 +173,23 @@ def get_my_replies(api, tweet):
 
     resp = requests.get(uri, headers=bearer_header, params=params)
     L.debug(resp.text)
+    # the fake tweet id we'll respond if we're not sure that we *haven't* responded yet.
+    # deduplicating tweets is harder than I expected! in particular when any call might hit limits and fail, it seems.
+    default = [{'id': 1}]
     try:
         return resp.json()['data']
     except json.decoder.JSONDecodeError:
         L.error(f"*** Couldn't decode JSON message in get_conversation.")
         # hack hack
-        return [1]
+        return default
+    except KeyError:
+        L.error(f"*** Couldn't decode JSON message in get_conversation.")
+        # hack hack
+        L.info(f"*** get_my_replies didn't find a reply.")
+        return default
+
+    L.info(f"*** get_my_replies fell through.")
+    return default
 
     # dead code below; this didn't work, perhaps conversation_id requires v2?
     replies = list(tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items())
@@ -284,7 +295,7 @@ def reply_to_tweet(api, reply, tweet):
         return False
 
 def handle_wikilink(api, tweet, match=None):
-    L.info(f'->  Handling wikilink: {match.group(0)}')
+    L.info(f'-> Handling wikilink: {match.group(0)}')
     L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
     # here is where we could dump to disk? or at least log the pointer.
     wikilinks = WIKILINK_RE.findall(tweet.full_text)
@@ -295,7 +306,7 @@ def handle_wikilink(api, tweet, match=None):
 
     response = '\n'.join(lines)
     L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
-    L.info(f'-> Trying to reply to {tweet.id}')
+    L.info(f'-> Considering reply to {tweet.id}')
     if reply_to_tweet(api, response, tweet):
         L.info(f'# Replied to {tweet.id}')
 
@@ -378,8 +389,13 @@ def process_mentions(api, since_id):
     L.info("# Retrieving mentions")
     new_since_id = since_id
     # explicit mentions
-    mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
-    L.info(f'# Processing {len(mentions)} mentions.')
+    try:
+        mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
+        L.info(f'# Processing {len(mentions)} mentions.')
+    except:
+        # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
+        L.info(f'# Twitter gave up on us.')
+        mentions = []
     # our tweets and those from users that follow us
     try:
         timeline = list(tweepy.Cursor(api.home_timeline, count=200, tweet_mode='extended').items())

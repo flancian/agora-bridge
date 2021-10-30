@@ -127,11 +127,12 @@ def get_conversation_id(tweet):
    uri = 'https://api.twitter.com/2/tweets?'
 
    params = {
-       'ids':tweet.id,
+       'ids': tweet.id,
        'tweet.fields':'conversation_id'
    }
    
    bearer_header = get_bearer_header()
+
    resp = requests.get(uri, headers=bearer_header, params=params)
    try:
        return resp.json()['data'][0]['conversation_id']
@@ -157,11 +158,32 @@ def get_conversation(conversation_id):
        return resp.json()
    except json.decoder.JSONDecodeError:
        L.error(f"*** Couldn't decode JSON message in get_conversation.")
+       L.error(resp.text)
 
 def get_my_replies(api, tweet):
-    conversation_id = get_conversation(tweet)
-    replies = tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items
-    L.debug(f'Got {len(replies)} replies: {replies}')
+    L.debug("get_my_replies running")
+    conversation_id = get_conversation_id(tweet)
+    L.debug(f"conversation_id: {conversation_id}")
+    uri = 'https://api.twitter.com/2/tweets/search/recent'
+    params = {
+        'query': f'conversation_id:{conversation_id} from:{BOT_USER_ID}',
+        'tweet.fields':'conversation_id'
+    }
+    bearer_header = get_bearer_header()
+
+    resp = requests.get(uri, headers=bearer_header, params=params)
+    L.debug(resp.text)
+    try:
+        return resp.json()['data']
+    except json.decoder.JSONDecodeError:
+        L.error(f"*** Couldn't decode JSON message in get_conversation.")
+        # hack hack
+        return [1]
+
+    # dead code below; this didn't work, perhaps conversation_id requires v2?
+    replies = list(tweepy.Cursor(api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items())
+    L.debug("replies: {replies}")
+    return replies
 
 def get_replies(api, tweet, upto=100):
     # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
@@ -194,26 +216,45 @@ def get_replies(api, tweet, upto=100):
             break
 
 def already_replied(api, tweet, upto=1):
+
+    try:
+        bot_replies = get_my_replies(api, tweet)
+        L.debug(f"-> bot replies: {bot_replies}.")
+    except:
+        L.exception(f"## already_replied failed call to get_my_replies!.")
+        L.info(f"## failsafe: not replying.")
+        return True
+
+    if bot_replies:
+        for reply in bot_replies:
+            L.info(f"-> already replied!: https://twitter.com/twitter/status/{reply['id']}.")
+        return True 
+    return False
+
+    # dead code beyond here.
+
     conversation = get_conversation(get_conversation_id(tweet))
     if not conversation:
-        L.error(f"### already_replied() -> error retrieving conversation, aborting reply.")
+        L.error(f"## already_replied() -> error retrieving conversation, aborting reply.")
         return True
 
     replies = []
     try:
         replies = conversation['data']
     except KeyError:
-        L.info(f"### already_replied() -> reply pending")
+        # why was I defaulting this condition to false?
+        L.info(f"## already_replied() -> reply pending")
         return False
 
     bot_replies = [reply for reply in replies if int(reply['author_id']) == BOT_USER_ID]
     if bot_replies:
         n = len(bot_replies)
         bot_replies_text = [reply['text'] for reply in bot_replies]
-        L.debug(f"### \n### already_replied() -> bot already replied {n} time(s).")
-        L.debug(f"### {tweet.full_text} bot_replies: {bot_replies_text}:")
-        return n
-    L.info(f"### already_replied() -> reply pending")
+        L.debug(f"## \n## already_replied() -> bot already replied {n} time(s).")
+        L.debug(f"## {tweet.full_text} bot_replies: {bot_replies_text}:")
+        return True
+
+    L.info(f"## already_replied() -> reply pending")
     return False
 
 def reply_to_tweet(api, reply, tweet):
@@ -221,27 +262,31 @@ def reply_to_tweet(api, reply, tweet):
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
     # TODO: move all of these to a class so we don't have to keep passing 'api' around.
     if already_replied(api, tweet):
-        L.info("### not replying due to dedup logic")
+        L.info("-> not replying due to dedup logic")
         return False
 
     if args.dry_run:
-        L.info("### not replying due to dry run")
+        L.info("-> not replying due to dry run")
         return False
 
     try:
-        return api.update_status(
+        res = api.update_status(
             status=reply,
             in_reply_to_status_id=tweet.id,
             auto_populate_reply_metadata=True
             )
+        if res:
+            L.debug(tweet.id, res)
+        return res
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
-        L.debug(f'### error while replying: {e}')
+        L.debug(f'! error while replying: {e}')
         return False
 
 def handle_wikilink(api, tweet, match=None):
-    L.info(f'## Handling wikilink: {match.group(0)}')
-    L.debug(f'## Handling wikilink tweet: {tweet.full_text}, match: {match}')
+    L.info(f'->  Handling wikilink: {match.group(0)}')
+    L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
+    # here is where we could dump to disk? or at least log the pointer.
     wikilinks = WIKILINK_RE.findall(tweet.full_text)
     lines = []
     for wikilink in wikilinks:
@@ -249,9 +294,10 @@ def handle_wikilink(api, tweet, match=None):
         lines.append(f'https://anagora.org/{slug}')
 
     response = '\n'.join(lines)
-    L.debug(f'## Tweeting: "{response}" as response to tweet id {tweet.id}')
+    L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
+    L.info(f'-> Trying to reply to {tweet.id}')
     if reply_to_tweet(api, response, tweet):
-        L.info(f'## Replied to {tweet.id}')
+        L.info(f'# Replied to {tweet.id}')
 
 def is_friend(api, user):
     followers = get_followers(api)
@@ -260,44 +306,47 @@ def is_friend(api, user):
         return False
 
     if any([u for u in followers if u.id == user.id]):
-        L.info(f'#### @{user.screen_name} is a friend.')
+        L.info(f'## @{user.screen_name} is a friend.')
         return True
 
-    L.info(f'#### @{user.screen_name} is not yet a friend.')
+    L.info(f'## @{user.screen_name} is not yet a friend.')
     return False
 
 def handle_push(api, tweet, match=None):
-    L.info(f'## Handling [[push]]: {match.group(0)}')
+    L.info(f'# Handling [[push]]: {match.group(0)}')
     reply_to_tweet(api, 'If you ask an Agora to [[push]] and you are a [[friend]], the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
 
     # Retweet if coming from a friend.
     if not is_friend(api, tweet.user):
-        L.info(f'### Not retweeting: not a known friend.')
+        L.info(f'## Not retweeting: not a known friend.')
         return
-    L.debug(f'### Retweeting: from a friend.')
+    L.debug(f'## Retweeting: from a friend.')
 
     if args.dry_run:
-        L.info(f'### Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
-        L.info(f'### Skipping retweet due to dry run.')
+        L.info(f'## Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
+        L.info(f'## Skipping retweet due to dry run.')
+        return False
     else:
-        L.info(f'### Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
+        L.info(f'## Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
         try:
             api.retweet(tweet.id)
+            return True
         except tweepy.error.TweepError as e:
-            L.info(f'### Skipping duplicate retweet.')
+            L.info(f'## Skipping duplicate retweet.')
+            return False
 
     # Also volunteer other links?
     # handle_wikilink(api, tweet, match)
 
 def handle_help(api, tweet, match=None):
-    L.info(f'## Handling [[help]]: {tweet}, {match}')
+    L.info(f'# Handling [[help]]: {tweet}, {match}')
     # This is probably borked -- reply_to_tweet now only replies once because of how we do deduping.
     # TODO: fix.
     reply_to_tweet(api, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', tweet, upto=2)
     reply_to_tweet(api, 'If you ask the Agora to [[push]], it will try to push for you.', tweet, upto=2)
 
 def handle_default(api, tweet, match=None):
-    L.info(f'## Handling default case, no clear intent present')
+    L.debug(f'-> Handling default case, no clear intent present')
     # perhaps hand back a link if we have a node that seems relevant?
     # reply_to_tweet(api, 'Would you like help?', tweet)
 
@@ -318,25 +367,35 @@ def follow_followers(api):
 
     for follower in get_followers(api): 
         if not follower.following:
-            L.info(f"## Following {follower.name} back")
+            L.info(f"# Following {follower.name} back")
             try:
                 follower.follow()
             except tweepy.error.TweepError:
-                L.error(f"## Error, perhaps due to Twitter follower list inconsistencies.")
+                L.error(f"# Error, perhaps due to Twitter follower list inconsistencies.")
 
 def process_mentions(api, since_id):
     # from https://realpython.com/twitter-bot-python-tweepy/
-    L.info("## Retrieving mentions")
+    L.info("# Retrieving mentions")
     new_since_id = since_id
-    tweets = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
-    total = len(tweets)
-    L.info(f'## Processing {total} mentions.')
+    # explicit mentions
+    mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
+    L.info(f'# Processing {len(mentions)} mentions.')
+    # our tweets and those from users that follow us
+    try:
+        timeline = list(tweepy.Cursor(api.home_timeline, count=200, tweet_mode='extended').items())
+        L.info(f'# Processing {len(timeline)} timeline tweets.')
+    except:
+        # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
+        L.info(f'# Twitter gave up on us.')
+        timeline = []
+
+    tweets = mentions + timeline
+    L.info(f'# Processing {len(tweets)} tweets.')
     for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
-        L.info(f'## Processing tweet {n}/{total} https://twitter.com/twitter/status/{tweet.id} by @{tweet.user.screen_name}.')
-        new_since_id = max(tweet.id, new_since_id)
+        L.info(f'# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}')
         # if not tweet.user.following and not args.dry_run:
-        #    L.info(f'## Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
+        #    L.info(f'# Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
         #    tweet.user.follow()
         # Process commands, in order of priority
         cmds = [
@@ -350,8 +409,9 @@ def process_mentions(api, since_id):
             if match:
                 handler(api, tweet, match)
                 break
-        L.debug(f'## Processed tweet: {tweet.id, tweet.full_text}')
+        L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
         L.debug(f'*' * 80)
+        new_since_id = max(tweet.id, new_since_id)
     return new_since_id
 
 #class AgoraBot(tweepy.StreamListener):
@@ -435,7 +495,6 @@ def main():
 
     api = tweepy.API(auth)
     L.info('[[agora bot]] starting.')
-    # api.update_status('[[agora bot]] v0.9 for Twitter starting, please wait.')
 
     while True: 
         since_id = process_mentions(api, since_id)

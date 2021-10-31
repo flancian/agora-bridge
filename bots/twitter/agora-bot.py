@@ -50,7 +50,7 @@ P_HELP = 0.2
 # argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
-parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('w'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
+parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
 parser.add_argument('--output-dir', dest='output_dir', type=argparse.FileType('r'), required=False, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--max_age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
@@ -236,6 +236,10 @@ def get_replies(api, tweet, upto=100):
 
 def already_replied(api, tweet, upto=1):
 
+    if tweet_to_url(tweet) in TWEETS.keys():
+        L.info(f"-> tweet already in handled list.")
+        return True
+
     try:
         bot_replies = get_my_replies(api, tweet)
         L.debug(f"-> bot replies: {bot_replies}.")
@@ -245,6 +249,10 @@ def already_replied(api, tweet, upto=1):
         return True
 
     if bot_replies:
+        # add previous responses to the cache/"db"
+        TWEETS[tweet_to_url(tweet)] = f"https://twitter.com/an_agora/status/{bot_replies[0]['id']}"
+        with open(args.tweets.name, 'w') as OUT:
+            yaml.dump(TWEETS, OUT)
         for reply in bot_replies:
             L.info(f"-> already replied!: https://twitter.com/twitter/status/{reply['id']}.")
         return True 
@@ -276,6 +284,9 @@ def already_replied(api, tweet, upto=1):
     L.info(f"## already_replied() -> reply pending")
     return False
 
+def tweet_to_url(tweet):
+    return f'https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}'
+
 def reply_to_tweet(api, reply, tweet):
     # Twitter deduplication only *mostly* works so we can't depend on it.
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
@@ -297,8 +308,9 @@ def reply_to_tweet(api, reply, tweet):
         if res:
             L.debug(tweet.id, res)
             # here is where we dump to disk, quite hackily for now.
-            TWEETS[f'https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}'] = f'https://twitter.com/{res.user.screen_name}/status/{res.id}'
-            yaml.dump(TWEETS, args.tweets)
+            TWEETS[tweet_to_url(tweet)] = tweet_to_url(res)
+            with open(args.tweets.name, 'w') as OUT:
+                yaml.dump(TWEETS, OUT)
         return res
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
@@ -507,6 +519,7 @@ def main():
     global ACCESS_TOKEN
     global ACCESS_TOKEN_SECRET
     global TWEETS
+    global OUT
 
     # Load config.
     try:
@@ -519,10 +532,7 @@ def main():
     try:
         TWEETS = yaml.safe_load(args.tweets)
     except yaml.YAMLError as e:
-        L.info(e)
-        TWEETS = {}
-    except io.UnsupportedOperation as e:
-        L.info(e)
+        L.exception('what')
         TWEETS = {}
 
     # Set up Twitter API.

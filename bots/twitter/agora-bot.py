@@ -25,6 +25,7 @@ import base64
 import cachetools.func
 import datetime
 import glob
+import io
 import json
 import logging
 import os
@@ -49,8 +50,10 @@ P_HELP = 0.2
 # argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
+parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('w'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
 parser.add_argument('--output-dir', dest='output_dir', type=argparse.FileType('r'), required=False, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--max_age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
 
@@ -293,6 +296,9 @@ def reply_to_tweet(api, reply, tweet):
             )
         if res:
             L.debug(tweet.id, res)
+            # here is where we could dump to disk? or at least log the pointer.
+            TWEETS[f'https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}'] = f'https://twitter.com/{res.user.screen_name}/status/{res.id}'
+            json.dump(TWEETS, args.tweets, ensure_ascii=False)
         return res
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
@@ -302,7 +308,6 @@ def reply_to_tweet(api, reply, tweet):
 def handle_wikilink(api, tweet, match=None):
     L.info(f'-> Handling wikilink: {match.group(0)}')
     L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
-    # here is where we could dump to disk? or at least log the pointer.
     wikilinks = WIKILINK_RE.findall(tweet.full_text)
     lines = []
     for wikilink in wikilinks:
@@ -359,7 +364,6 @@ def handle_help(api, tweet, match=None):
     # This is probably borked -- reply_to_tweet now only replies once because of how we do deduping.
     # TODO: fix.
     reply_to_tweet(api, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', tweet, upto=2)
-    reply_to_tweet(api, 'If you ask the Agora to [[push]], it will try to push for you.', tweet, upto=2)
 
 def handle_default(api, tweet, match=None):
     L.debug(f'-> Handling default case, no clear intent present')
@@ -395,7 +399,8 @@ def process_mentions(api, since_id):
     new_since_id = since_id
     # only process tweets newer than n days -- works around the worst of the twitter search restrictions, as
     # for old tweets sometimes we might not see our own responses :(
-    start_time = datetime.datetime.now () - datetime.timedelta(days=1)
+    L.info(f'age: {args.max_age}')
+    start_time = datetime.datetime.now () - datetime.timedelta(minutes=args.max_age)
     # explicit mentions
     try:
         mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
@@ -501,12 +506,24 @@ def main():
     global CONSUMER_SECRET
     global ACCESS_TOKEN
     global ACCESS_TOKEN_SECRET
+    global TWEETS
 
     # Load config.
     try:
         config = yaml.safe_load(args.config)
     except yaml.YAMLError as e:
         L.fatal(e)
+
+    # load state.
+    # this should be optional.
+    try:
+        TWEETS = yaml.safe_load(args.tweets)
+    except yaml.YAMLError as e:
+        L.info(e)
+        TWEETS = {}
+    except io.UnsupportedOperation as e:
+        L.info(e)
+        TWEETS = {}
 
     # Set up Twitter API.
     # Global, again, is a smell, but yolo.

@@ -10,10 +10,9 @@
 
 (defn host-to-json [host] (slurp (str "http://" host "/system/export.json")))
 
-(defn mkdir [host] 
+(defn mkdir [host garden-path] 
   (let [slug (clojure.string/replace host #"\." "-")
-        config (slurp "config.edn")
-        path (str ((clojure.edn/read-string config) :garden-path) slug)]
+        path (str garden-path "/" slug)]
     (.mkdir (java.io.File. path))
     path)
   )
@@ -29,11 +28,12 @@
       (let [content (page-to-content page)]
         {:slug (name slug) :content content}))))
 
-(defn run [host]
+(defn run [host garden-path]
   
   (let [json (host-to-json host)
         pages (json-to-pages json)
-        path (mkdir host)]
+        path (mkdir host garden-path)
+        ]
     (println path)
     (doseq [page pages] 
       

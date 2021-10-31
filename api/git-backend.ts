@@ -5,8 +5,15 @@ var backend = require('git-http-backend');
 var zlib = require('zlib');
 
 export var server = http.createServer(function (req, res) {
+    console.log("Creating http server for serving git repo.");
     var service = req.url.split('/')[1];
     var repo = req.url.split('/')[2];
+    console.log("service: " + service);
+    console.log("repo: " + repo);
+    if (!service || !repo) {
+       console.log("returning early due to lack of parameters");
+       return res.end("This service expects a repository path in the form <protocol>://<hostname>/user/repo.")
+    }
     var dir = path.join(__dirname, service, repo);
     var reqStream = req.headers['content-encoding'] == 'gzip' ? req.pipe(zlib.createGunzip()) : req;
     

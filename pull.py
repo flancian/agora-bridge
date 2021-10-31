@@ -36,6 +36,7 @@ parser = argparse.ArgumentParser(description='Agora Bridge')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to a YAML file describing the digital gardens to consume.')
 parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where the digital gardens will be stored (one subdirectory per user).')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -77,6 +78,10 @@ def git_pull(path):
     if output.stderr:
         L.info(output.stderr)
 
+def fedwiki_import(url):
+    output = subprocess.run(['./fedwiki.sh', url, args.output_dir], capture_output=True)
+    L.info(output.stdout)
+
 def worker():
     while True:
         L.info("Queue size: {}".format(Q.qsize()))
@@ -86,7 +91,7 @@ def worker():
         # if this is a pull, schedule the same task for another run later.
         if task[0] == git_pull:
             Q.put(task)
-        time.sleep(0.1)
+        time.sleep(args.delay)
 
 def main():
 
@@ -96,13 +101,13 @@ def main():
         L.error(e)
 
     for item in config:
+        if item['format'] == "fedwiki":
+            Q.put((fedwiki_import, item['url']))
+            continue
+        path = os.path.join(args.output_dir, item['target'])
         # schedule one 'clone' run for every garden, in case this is a new garden (or agora).
-        path = os.path.join(args.output_dir, item['target'])
         Q.put((git_clone, item['url'], path))
-
-    for item in config:
         # pull it once, it will be queued again later from the worker.
-        path = os.path.join(args.output_dir, item['target'])
         Q.put((git_pull, path))
 
     processes = []

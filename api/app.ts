@@ -8,13 +8,14 @@ import { stripHtml } from "string-strip-html";
 import * as express from 'express'
 var cors = require('cors')
 const app = express()
-app.use(cors())
-const port = 3000
+const portApi = 3141
+const portGit = 3142
 app.use(express.json())
 app.put('/node', async (req,res) => {
     config = await loadFile("config.json")
     console.log(req.body)
-    const dir = config.repoPath
+    const repo = config.repoPath
+    const dir = `${repo}/${req.body.user}`
     await fs.promises.mkdir(dir, { recursive: true })
     await git.init({ fs, dir })
     fs.writeFileSync(`${dir}/${req.body.name}.md`, req.body.content)
@@ -25,11 +26,17 @@ app.put('/node', async (req,res) => {
 app.put('/repo', async (req,res) => {
     config = await loadFile("config.json")
     const yaml = config.repoYaml
-    fs.appendFileSync(yaml, `\n- target: ${req.body.target}\nurl: ${req.body.url}\nformat: ${req.body.format}`);
-    res.send({status: "saved"})
+    fs.appendFileSync(yaml, `\n- target: ${req.body.target}\n  url: ${req.body.url}\n  format: ${req.body.format}`);
+    res.send('saved')
 
 })
-app.listen(port, () => console.log("starting server"))
+app.get('/', async (req,res) => {
+    config = await loadFile("config.json")
+    const dir = config.repoPath
+    res.send('Welcome to the nascent Agora API! Available endpoints: PUT {/node, /repo}.')
+})
+
+app.listen(portApi, () => console.log("starting server"))
 
 const URL = "https://api.twitter.com"
 let config
@@ -90,4 +97,7 @@ async function main() {
 
 // main()
 
-server.listen(8000)
+
+// api on portApi, default 3141, see above.
+// git repos on portGit, default 3142.
+server.listen(portGit)

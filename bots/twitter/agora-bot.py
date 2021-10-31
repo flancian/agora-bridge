@@ -296,9 +296,9 @@ def reply_to_tweet(api, reply, tweet):
             )
         if res:
             L.debug(tweet.id, res)
-            # here is where we could dump to disk? or at least log the pointer.
+            # here is where we dump to disk, quite hackily for now.
             TWEETS[f'https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}'] = f'https://twitter.com/{res.user.screen_name}/status/{res.id}'
-            json.dump(TWEETS, args.tweets, ensure_ascii=False)
+            yaml.dump(TWEETS, args.tweets)
         return res
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.

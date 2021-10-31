@@ -78,6 +78,10 @@ def git_pull(path):
     if output.stderr:
         L.info(output.stderr)
 
+def fedwiki_import(url):
+    output = subprocess.run(['./fedwiki.sh', url, args.output_dir], capture_output=True)
+    L.info(output.stdout)
+
 def worker():
     while True:
         L.info("Queue size: {}".format(Q.qsize()))
@@ -97,13 +101,13 @@ def main():
         L.error(e)
 
     for item in config:
+        if item['format'] == "fedwiki":
+            Q.put((fedwiki_import, item['url']))
+            continue
+        path = os.path.join(args.output_dir, item['target'])
         # schedule one 'clone' run for every garden, in case this is a new garden (or agora).
-        path = os.path.join(args.output_dir, item['target'])
         Q.put((git_clone, item['url'], path))
-
-    for item in config:
         # pull it once, it will be queued again later from the worker.
-        path = os.path.join(args.output_dir, item['target'])
         Q.put((git_pull, path))
 
     processes = []

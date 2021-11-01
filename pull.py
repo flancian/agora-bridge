@@ -23,6 +23,7 @@ import time
 import yaml
 from multiprocessing import Pool, JoinableQueue, Process
 import subprocess
+this_path = os.getcwd()
 
 def dir_path(string):
     if not os.path.isdir(string):
@@ -79,7 +80,7 @@ def git_pull(path):
         L.info(output.stderr)
 
 def fedwiki_import(url):
-    output = subprocess.run(['./fedwiki.sh', url, args.output_dir], capture_output=True)
+    output = subprocess.run([f"{this_path}/fedwiki.sh", url, args.output_dir], capture_output=True)
     L.info(output.stdout)
 
 def worker():

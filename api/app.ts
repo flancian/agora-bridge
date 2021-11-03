@@ -8,6 +8,7 @@ import { stripHtml } from "string-strip-html";
 import * as express from 'express'
 var cors = require('cors')
 const app = express()
+app.use(cors())
 const portApi = 3141
 const portGit = 3142
 app.use(express.json())
@@ -21,13 +22,13 @@ app.put('/node', async (req,res) => {
     fs.writeFileSync(`${dir}/${req.body.name}.md`, req.body.content)
     await git.add({ fs, dir, filepath: '.' })
     await git.commit({ fs, dir, author: { name: "agora" }, message: `agora commit ${Date()}` })
-    res.send('saved')
+    res.send({status: "saved"})
 })
 app.put('/repo', async (req,res) => {
     config = await loadFile("config.json")
     const yaml = config.repoYaml
     fs.appendFileSync(yaml, `\n- target: ${req.body.target}\n  url: ${req.body.url}\n  format: ${req.body.format}`);
-    res.send('saved')
+    res.send({status: "saved"})
 
 })
 app.get('/', async (req,res) => {

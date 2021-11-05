@@ -80,6 +80,7 @@ def git_pull(path):
         L.info(output.stderr)
 
 def fedwiki_import(url):
+    os.chdir(this_path)
     output = subprocess.run([f"{this_path}/fedwiki.sh", url, args.output_dir], capture_output=True)
     L.info(output.stdout)
 

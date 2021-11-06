@@ -80,6 +80,7 @@ def git_pull(path):
         L.info(output.stderr)
 
 def fedwiki_import(url):
+    os.chdir(this_path)
     output = subprocess.run([f"{this_path}/fedwiki.sh", url, args.output_dir], capture_output=True)
     L.info(output.stdout)
 
@@ -90,7 +91,7 @@ def worker():
         task[0](*task[1:])
         Q.task_done()
         # if this is a pull, schedule the same task for another run later.
-        if task[0] == git_pull:
+        if task[0] == git_pull or task[0] == fedwiki_import:
             Q.put(task)
         time.sleep(args.delay)
 

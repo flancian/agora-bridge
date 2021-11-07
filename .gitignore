@@ -109,3 +109,8 @@ venv.bak/
 garden.yaml
 importer/
 fedwiki-bak
+bots/twitter/.agora-bot.py.swo
+bots/twitter/.agora-bot.py.swp
+bots/twitter/.agora-bot.yaml.swp
+bots/twitter/jodorowsky
+bots/twitter/tweets.yaml.bak

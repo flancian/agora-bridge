@@ -26,7 +26,7 @@ import yaml
 from mastodon import Mastodon, StreamListener
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
-PUSH_RE = re.compile(r'\[\[push\]\]\s(\S+)', re.IGNORECASE)
+PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
 P_HELP = 0.2
 
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
@@ -65,6 +65,10 @@ class AgoraBot(StreamListener):
         L.info('sending toot.')
         status = self.mastodon.status_post(msg, in_reply_to_id=in_reply_to_id)
 
+    def boost_toot(self, id):
+        L.info('boosting toot.')
+        status = self.mastodon.status_reblog(id)
+
     def handle_wikilink(self, status, match=None):
         L.info(f'seen wikilink: {status}, {match}')
         if random.random() < P_HELP:
@@ -78,7 +82,8 @@ class AgoraBot(StreamListener):
 
     def handle_push(self, status, match=None):
         L.info(f'seen push: {status}, {match}')
-        self.send_toot('If you ask the Agora to [[push]], it will try to push for you.', status.id)
+        self.send_toot('If you ask the Agora to [[push]] and you are a friend, it will try to push with you.', status.id)
+        self.boost_toot(status.id)
 
     def handle_mention(self, status):
         """Handle toots mentioning the [[agora bot]], which may contain commands"""

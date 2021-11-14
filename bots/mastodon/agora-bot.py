@@ -118,6 +118,9 @@ def main():
     
     bot = AgoraBot(mastodon)
     L.info('[[agora bot]] starting streaming.')
+    for user in mastodon.account_followers(mastodon.me().id):
+        L.info(f'following back {user.acct}')
+        mastodon.account_follow(user.id)
     mastodon.stream_user(bot)
 
     # mastodon.status_post("[[agora bot]] v0.9 initializing, please wait.")

@@ -23,11 +23,11 @@ import random
 import re
 import yaml
 
-from mastodon import Mastodon, StreamListener
+from mastodon import Mastodon, StreamListener, MastodonAPIError
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
-P_HELP = 0.2
+P_HELP = 0.0
 
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -97,12 +97,37 @@ class AgoraBot(StreamListener):
                 handler(status, match)
                 return
 
+    def handle_update(self, status):
+        """Handle toots with [[patterns]] by people that follow us."""
+        # Process commands, in order of priority
+        cmds = [(PUSH_RE, self.handle_push),
+                (WIKILINK_RE, self.handle_wikilink)]
+        for regexp, handler in cmds:
+            match = regexp.search(status.content)
+            if match:
+                L.info('Got a status with a pattern!')
+                handler(status, match)
+                return
+
     def on_notification(self, notification):
+        # we get this for explicit mentions.
         self.last_read_notification = notification.id
         if notification.type == 'mention':
             self.handle_mention(notification.status)
         else:
             L.info(f'received unhandled notification type: {notification.type}')
+
+    def on_update(self, status):
+        # we get this on all activity on our watching list.
+        self.handle_update(status)
+
+def get_watching(mastodon):
+    lists = mastodon.lists()
+    for l in lists:
+        if l.title == 'watching':
+            return l
+    watching = mastodon.list_create('watching')
+    return watching
 
 def main():
     try:
@@ -117,11 +142,22 @@ def main():
     )
     
     bot = AgoraBot(mastodon)
-    L.info('[[agora bot]] starting streaming.')
-    for user in mastodon.account_followers(mastodon.me().id):
+    followers = mastodon.account_followers(mastodon.me().id)
+    watching = get_watching(mastodon)
+    try:
+        mastodon.list_accounts_add(watching, followers)
+    except MastodonAPIError:
+        pass
+    for user in followers:
         L.info(f'following back {user.acct}')
-        mastodon.account_follow(user.id)
-    mastodon.stream_user(bot)
+        try:
+            mastodon.account_follow(user.id)
+        except MastodonAPIError:
+            pass
+    #mastodon.stream_user(bot, run_async=True)
+    L.info('[[agora bot]] starting streaming.')
+    # why are the parameters flipped for this call?
+    mastodon.stream_list(watching, bot)
 
     # mastodon.status_post("[[agora bot]] v0.9 initializing, please wait.")
 

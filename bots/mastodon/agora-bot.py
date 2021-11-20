@@ -50,6 +50,7 @@ def slugify(wikilink):
             .strip()
             .replace(',', ' ')
             .replace(';', ' ')
+            .replace(':', ' ')
             .replace('  ', '-')
             .replace(' ', '-')
             )

@@ -72,6 +72,9 @@ def slugify(wikilink):
     slug = (
             wikilink.lower()
             .strip()
+            .replace(',', ' ')
+            .replace(';', ' ')
+            .replace('  ', '-')
             .replace(' ', '-')
             )
     return slug

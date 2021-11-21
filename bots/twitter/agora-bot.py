@@ -47,13 +47,24 @@ DEFAULT_RE = re.compile(r'.', re.IGNORECASE)
 # Unused for now.
 P_HELP = 0.2
 
+# https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
+class readable_dir(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        prospective_dir=values
+        if not os.path.isdir(prospective_dir):
+            raise argparse.ArgumentTypeError("readable_dir:{0} is not a valid path".format(prospective_dir))
+        if os.access(prospective_dir, os.R_OK):
+            setattr(namespace,self.dest,prospective_dir)
+        else:
+            raise argparse.ArgumentTypeError("readable_dir:{0} is not a readable dir".format(prospective_dir))
+
 # argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
-parser.add_argument('--output-dir', dest='output_dir', type=argparse.FileType('r'), required=False, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--max_age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
+parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
 
@@ -291,10 +302,43 @@ def already_replied(api, tweet, upto=1):
 def tweet_to_url(tweet):
     return f'https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}'
 
+def log_tweet(tweet, node):
+    if not args.output_dir:
+        return False
+
+    if ('/' in node):
+        # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+        node = os.path.split(node)[-1]
+
+    filename = os.path.join(args.output_dir, node + '.md')
+
+    # dedup logic.
+    try:
+        with open(filename, 'r') as note:
+            if tweet_to_url(tweet) in note.read():
+                L.info("Tweet already logged to note.")
+                return False
+            else:
+                L.info("Tweet was logged to note.")
+    except FileNotFoundError:
+        pass
+
+    # try to append.
+    try:
+        with open(filename, 'a') as note:
+            note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n")
+    except: 
+        L.error("Couldn't log tweet to note.")
+
+def yaml_dump_tweets(tweets):
+    with open(args.tweets.name, 'w') as out:
+        yaml.dump(TWEETS, out)
+
 def reply_to_tweet(api, reply, tweet):
     # Twitter deduplication only *mostly* works so we can't depend on it.
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
     # TODO: move all of these to a class so we don't have to keep passing 'api' around.
+    L.info("-> in reply_to_tweet")
     if already_replied(api, tweet):
         L.info("-> not replying due to dedup logic")
         return False
@@ -310,11 +354,11 @@ def reply_to_tweet(api, reply, tweet):
             auto_populate_reply_metadata=True
             )
         if res:
+            # update a global and dump to disk -- really need to refactor this into a Bot class shared with Mastodon.
+            # TODO: refactor.
             L.debug(tweet.id, res)
-            # here is where we dump to disk, quite hackily for now.
             TWEETS[tweet_to_url(tweet)] = tweet_to_url(res)
-            with open(args.tweets.name, 'w') as OUT:
-                yaml.dump(TWEETS, OUT)
+            yaml_dump_tweets(TWEETS)
         return res
     except tweepy.error.TweepError as e:
         # triggered by duplicates, for example.
@@ -329,6 +373,7 @@ def handle_wikilink(api, tweet, match=None):
     for wikilink in wikilinks:
         slug = slugify(wikilink)
         lines.append(f'https://anagora.org/{slug}')
+        log_tweet(tweet, wikilink)
 
     response = '\n'.join(lines)
     L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
@@ -351,6 +396,7 @@ def is_friend(api, user):
 
 def handle_push(api, tweet, match=None):
     L.info(f'# Handling [[push]]: {match.group(0)}')
+    log_tweet(tweet, 'push')
     reply_to_tweet(api, 'If you ask an Agora to [[push]] and you are a [[friend]], the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
 
     # Retweet if coming from a friend.
@@ -379,6 +425,7 @@ def handle_help(api, tweet, match=None):
     L.info(f'# Handling [[help]]: {tweet}, {match}')
     # This is probably borked -- reply_to_tweet now only replies once because of how we do deduping.
     # TODO: fix.
+    log_tweet(tweet, 'help')
     reply_to_tweet(api, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', tweet, upto=2)
 
 def handle_default(api, tweet, match=None):

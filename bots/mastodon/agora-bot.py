@@ -29,10 +29,23 @@ WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
 P_HELP = 0.0
 
+# https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
+class readable_dir(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        prospective_dir=values
+        if not os.path.isdir(prospective_dir):
+            raise argparse.ArgumentTypeError("readable_dir:{0} is not a valid path".format(prospective_dir))
+        if os.access(prospective_dir, os.R_OK):
+            setattr(namespace,self.dest,prospective_dir)
+        else:
+            raise argparse.ArgumentTypeError("readable_dir:{0} is not a readable dir".format(prospective_dir))
+
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 # parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -55,6 +68,34 @@ def slugify(wikilink):
             .replace(' ', '-')
             )
     return slug
+
+def log_toot(toot, node):
+    if not args.output_dir:
+        return False
+
+    if ('/' in node):
+        # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+        node = os.path.split(node)[-1]
+
+    filename = os.path.join(args.output_dir, node + '.md')
+
+    # dedup logic.
+    try:
+        with open(filename, 'r') as note:
+            if toot.url in note.read():
+                L.info("Toot already logged to note.")
+                return False
+            else:
+                L.info("Toot was logged to note.")
+    except FileNotFoundError:
+        pass
+
+    # try to append.
+    try:
+        with open(filename, 'a') as note:
+            note.write(f"- [[{toot.account.username}]] {toot.url}\n")
+    except: 
+        L.error("Couldn't log toot to note.")
 
 class AgoraBot(StreamListener):
     """main class for [[agora bot]] for [[mastodon]]."""
@@ -82,10 +123,19 @@ class AgoraBot(StreamListener):
         for wikilink in wikilinks:
             slug = slugify(wikilink)
             lines.append(f'https://anagora.org/{slug}')
+            log_toot(status, wikilink)
+
+        if args.dry_run:
+            L.info("-> not replying due to dry run")
+            return False
+
         self.send_toot('\n'.join(lines), status.id)
 
     def handle_push(self, status, match=None):
         L.info(f'seen push: {status}, {match}')
+        if args.dry_run:
+            L.info("-> not replying due to dry run")
+            return False
         self.send_toot('If you ask the Agora to [[push]] and you are a friend, it will try to push with you.', status.id)
         self.boost_toot(status.id)
 

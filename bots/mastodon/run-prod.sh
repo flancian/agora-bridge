@@ -1,3 +1,5 @@
 #!/bin/bash
 . venv/bin/activate
-./agora-bot.py --config agora-bot.yaml $@
+OUTPUT=/home/agora/agora/garden/agora@botsin.space
+mkdir ${OUTPUT}
+./agora-bot.py --config agora-bot.yaml --output=${OUTPUT} $@

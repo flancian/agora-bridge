@@ -82,7 +82,9 @@ def log_toot(toot, node):
     # dedup logic.
     try:
         with open(filename, 'r') as note:
-            if toot.url in note.read():
+            note = note.read()
+            L.info(f"Note: {note}.")
+            if note and toot.url in note:
                 L.info("Toot already logged to note.")
                 return False
             else:
@@ -94,8 +96,10 @@ def log_toot(toot, node):
     try:
         with open(filename, 'a') as note:
             note.write(f"- [[{toot.account.username}]] {toot.url}\n")
+            return True
     except: 
         L.error("Couldn't log toot to note.")
+        return False
 
 class AgoraBot(StreamListener):
     """main class for [[agora bot]] for [[mastodon]]."""
@@ -123,13 +127,15 @@ class AgoraBot(StreamListener):
         for wikilink in wikilinks:
             slug = slugify(wikilink)
             lines.append(f'https://anagora.org/{slug}')
-            log_toot(status, wikilink)
 
         if args.dry_run:
             L.info("-> not replying due to dry run")
             return False
 
-        self.send_toot('\n'.join(lines), status.id)
+        if log_toot(status, wikilink):
+            self.send_toot('\n'.join(lines), status.id)
+        else:
+            L.info("-> not replying due to failed logging, trying to avoid duplicates.")
 
     def handle_push(self, status, match=None):
         L.info(f'seen push: {status}, {match}')
@@ -176,11 +182,13 @@ class AgoraBot(StreamListener):
         self.handle_update(status)
 
 def get_watching(mastodon):
+    from datetime import datetime
+    now = datetime.now()
     lists = mastodon.lists()
-    for l in lists:
-        if l.title == 'watching':
-            return l
-    watching = mastodon.list_create('watching')
+    #for l in lists:
+    #    if l.title == 'watching2':
+    #        return l
+    watching = mastodon.list_create(f'{now}')
     return watching
 
 def main():
@@ -201,7 +209,9 @@ def main():
     try:
         mastodon.list_accounts_add(watching, followers)
     except MastodonAPIError as e:
-       print(e)
+        print("error when trying to add accounts to watching")
+        print(f"watching: {watching}")
+        print(e)
     for user in followers:
         L.info(f'following back {user.acct}')
         try:

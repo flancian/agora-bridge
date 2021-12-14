@@ -200,15 +200,15 @@ def main():
     watching = get_watching(mastodon)
     try:
         mastodon.list_accounts_add(watching, followers)
-    except MastodonAPIError:
-        pass
+    except MastodonAPIError as e:
+       print(e)
     for user in followers:
         L.info(f'following back {user.acct}')
         try:
             mastodon.account_follow(user.id)
         except MastodonAPIError:
             pass
-    #mastodon.stream_user(bot, run_async=True)
+    mastodon.stream_user(bot, run_async=True)
     L.info('[[agora bot]] starting streaming.')
     # why are the parameters flipped for this call?
     mastodon.stream_list(watching, bot)

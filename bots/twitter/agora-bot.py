@@ -397,7 +397,7 @@ def is_friend(api, user):
 def handle_push(api, tweet, match=None):
     L.info(f'# Handling [[push]]: {match.group(0)}')
     log_tweet(tweet, 'push')
-    reply_to_tweet(api, 'If you ask an Agora to [[push]] and you are a [[friend]], the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
+    reply_to_tweet(api, 'If you ask an Agora to push and you are a friend, the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
 
     # Retweet if coming from a friend.
     if not is_friend(api, tweet.user):

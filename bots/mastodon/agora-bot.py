@@ -142,7 +142,7 @@ class AgoraBot(StreamListener):
         if args.dry_run:
             L.info("-> not replying due to dry run")
             return False
-        self.send_toot('If you ask the Agora to [[push]] and you are a friend, it will try to push with you.', status.id)
+        self.send_toot('If you ask an Agora to push and you are a friend, the Agora will try to push with you.', status.id)
         self.boost_toot(status.id)
 
     def handle_mention(self, status):

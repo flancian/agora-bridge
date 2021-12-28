@@ -254,6 +254,9 @@ def already_replied(api, tweet, upto=1):
     if tweet_to_url(tweet) in TWEETS.keys():
         L.info(f"-> tweet already in handled list.")
         return True
+    return False
+
+    # dead code beyond here.
 
     try:
         bot_replies = get_my_replies(api, tweet)
@@ -273,7 +276,7 @@ def already_replied(api, tweet, upto=1):
         return True 
     return False
 
-    # dead code beyond here.
+    # deader code beyond here.
 
     conversation = get_conversation(get_conversation_id(tweet))
     if not conversation:

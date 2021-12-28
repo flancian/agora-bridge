@@ -472,17 +472,17 @@ def process_mentions(api, since_id):
         mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
         L.info(f'# Processing {len(mentions)} mentions.')
         # hack
-    except:
+    except Exception as e:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-        L.exception(f'# Twitter gave up on us.')
+        L.exception(f'# Twitter gave up on us, {e}.')
         mentions = []
     # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
     try:
         timeline = list(tweepy.Cursor(api.home_timeline, count=200, tweet_mode='extended').items())
         L.info(f'# Processing {len(timeline)} timeline tweets.')
-    except:
+    except Exception as e:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-        L.exception(f'# Twitter gave up on us.')
+        L.exception(f'# Twitter gave up on us, {e}.')
         timeline = []
 
     tweets = mentions + timeline
@@ -592,7 +592,7 @@ def main():
     # Set up Twitter API.
     # Global, again, is a smell, but yolo.
     BACKOFF = 15
-    BACKOFF_MAX = 600
+    BACKOFF_MAX = 60
     BOT_USER_ID = config['bot_user_id']
     CONSUMER_KEY = config['consumer_key']
     CONSUMER_SECRET = config['consumer_secret']
@@ -607,16 +607,15 @@ def main():
     L.info('[[agora bot]] starting.')
 
     while True: 
-        since_id = process_mentions(api, since_id)
-        follow_followers(api)
         try: 
-            pass
+            since_id = process_mentions(api, since_id)
+            follow_followers(api)
         except tweepy.error.TweepError as e:
             L.info(e)
             L.error("# Twitter api rate limit reached".format(e))
             BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
             L.info(f"# Backing off {BACKOFF} after exception.")
-        L.info('# [[agora bot]] waiting.')
+        L.info(f'# [[agora bot]] waiting for {BACKOFF}.')
         time.sleep(BACKOFF)
 
 if __name__ == "__main__":

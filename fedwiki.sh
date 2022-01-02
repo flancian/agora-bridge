@@ -1,3 +1,3 @@
 #!/bin/bash
 cd fedwiki
-shadow-cljs run fedwiki.app/run $1 $2 
+go run main.go $1 $2 

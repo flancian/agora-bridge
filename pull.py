@@ -45,7 +45,7 @@ L = logging.getLogger('pull')
 if args.verbose:
     L.setLevel(logging.DEBUG)
 else:
-    L.setLevel(logging.INFO)
+    L.setLevel(logging.WARN)
 
 Q = JoinableQueue()
 WORKERS = 2

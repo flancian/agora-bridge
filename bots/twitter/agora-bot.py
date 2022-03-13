@@ -475,7 +475,8 @@ def process_mentions(api, since_id):
     start_time = datetime.datetime.now () - datetime.timedelta(minutes=args.max_age)
     # explicit mentions
     try:
-        mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
+        # mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
+        mentions = list(tweepy.Cursor(api.mentions_timeline, count=200, tweet_mode='extended').items())
         L.info(f'# Processing {len(mentions)} mentions.')
         # hack
     except Exception as e:

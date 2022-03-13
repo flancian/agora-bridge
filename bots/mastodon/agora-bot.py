@@ -206,6 +206,18 @@ def main():
     bot = AgoraBot(mastodon)
     followers = mastodon.account_followers(mastodon.me().id)
     watching = get_watching(mastodon)
+
+    # try to clean up one old list to account for the one we'll create next.
+    lists = mastodon.lists()
+    try:
+        l = lists[0]
+        L.info(f"trying to clean up an old list: {l}, {l['id']}.")
+        mastodon.list_delete(l['id'])
+        L.info(f"clean up succeeded.")
+    except:
+        L.info("couldn't clean up list.")
+        L.error(f"list: {l['id']})")
+
     try:
         mastodon.list_accounts_add(watching, followers)
     except MastodonAPIError as e:

@@ -129,16 +129,26 @@ class AgoraBot(StreamListener):
             self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status.id)
         wikilinks = WIKILINK_RE.findall(status.content)
         lines = []
+
+        mentions = ""
+        for mention in status.mentions:
+            mentions += f"@{mention['acct']} "
+        lines.append(mentions)
+
         for wikilink in wikilinks:
             slug = slugify(wikilink)
             lines.append(f'https://anagora.org/{slug}')
 
+        msg = '\n'.join(lines)
+
         if args.dry_run:
-            L.info("-> not replying due to dry run")
+            L.info(f"-> not replying due to dry run")
+            L.info(f"-> message would be: {msg}")
             return False
 
+        # we use the log as a database :)
         if log_toot(status, wikilink):
-            self.send_toot('\n'.join(lines), status.id)
+            self.send_toot(msg, status.id)
         else:
             L.info("-> not replying due to failed logging, trying to avoid duplicates.")
 

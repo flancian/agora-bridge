@@ -391,8 +391,8 @@ def handle_wikilink(api, tweet, match=None):
 def is_friend(api, user):
     followers = get_followers(api)
     if not followers:
-        L.info('*** Could not friend check due likely to a quota issue, failing closed.')
-        return False
+        L.info('*** Could not friend check due likely to a quota issue, failing OPEN.')
+        return True
 
     if any([u for u in followers if u.id == user.id]):
         L.info(f'## @{user.screen_name} is a friend.')

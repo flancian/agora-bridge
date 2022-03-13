@@ -23,6 +23,7 @@ import random
 import re
 import yaml
 
+from datetime import datetime
 from mastodon import Mastodon, StreamListener, MastodonAPIError
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
@@ -46,6 +47,7 @@ parser.add_argument('--config', dest='config', type=argparse.FileType('r'), requ
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
+parser.add_argument('--catch-up', dest='catch_up', action="store_true", help='Whether to run code to catch up on missed toots (e.g. because we were down for a bit, or because this is a new bot instance.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -182,12 +184,7 @@ class AgoraBot(StreamListener):
         self.handle_update(status)
 
 def get_watching(mastodon):
-    from datetime import datetime
     now = datetime.now()
-    lists = mastodon.lists()
-    #for l in lists:
-    #    if l.title == 'watching2':
-    #        return l
     watching = mastodon.list_create(f'{now}')
     return watching
 
@@ -224,12 +221,27 @@ def main():
         print("error when trying to add accounts to watching")
         print(f"watching: {watching}")
         print(e)
+
     for user in followers:
         L.info(f'following back {user.acct}')
         try:
             mastodon.account_follow(user.id)
         except MastodonAPIError:
             pass
+
+        if args.catch_up:
+            L.info("trying to catch up with any missed toots for user.")
+            # the mastodon API... sigh.
+            # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
+            #   (this might be a limitation of botsin.space?)
+            # mastodon.list_timeline() looked promising but always comes back empty with no reason.
+            # so we need to iterate per-user in the end. should be OK.
+            L.info(f'fetching latest toots by user {user.acct}')
+            statuses = mastodon.account_statuses(user['id'])
+            for status in statuses:
+                # still needs to handle deduping.
+                bot.handle_update(status)
+
     mastodon.stream_user(bot, run_async=True)
     L.info('[[agora bot]] starting streaming.')
     # why are the parameters flipped for this call?

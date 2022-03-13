@@ -449,6 +449,7 @@ def get_followers(api):
     except tweepy.error.RateLimitError:
         # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
         followers = []
+    L.info(f'*** followers: {followers}')
     return followers
 
 def follow_followers(api):

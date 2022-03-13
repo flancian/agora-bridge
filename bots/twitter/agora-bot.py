@@ -346,6 +346,10 @@ def reply_to_tweet(api, reply, tweet):
         L.info("-> not replying due to dedup logic")
         return False
 
+    if not is_friend(api, tweet.user):
+        L.info("-> not replying because this user no longer follows us.")
+        return False
+
     if args.dry_run:
         L.info("-> not replying due to dry run")
         return False
@@ -403,6 +407,7 @@ def handle_push(api, tweet, match=None):
     reply_to_tweet(api, 'If you ask an Agora to push and you are a friend, the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend', tweet)
 
     # Retweet if coming from a friend.
+    # This should probably be closed down to 'is thought to be an [[agoran]]'.
     if not is_friend(api, tweet.user):
         L.info(f'## Not retweeting: not a known friend.')
         return

@@ -131,8 +131,9 @@ class AgoraBot(StreamListener):
         lines = []
 
         mentions = ""
-        for mention in status.mentions:
+        for mention in [status['account']] + status.mentions:
             mentions += f"@{mention['acct']} "
+
         lines.append(mentions)
 
         for wikilink in wikilinks:

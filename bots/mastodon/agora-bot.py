@@ -21,10 +21,11 @@ import logging
 import os
 import random
 import re
+import time
 import yaml
 
 from datetime import datetime
-from mastodon import Mastodon, StreamListener, MastodonAPIError
+from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
@@ -45,7 +46,7 @@ parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPu
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 # parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 parser.add_argument('--catch-up', dest='catch_up', action="store_true", help='Whether to run code to catch up on missed toots (e.g. because we were down for a bit, or because this is a new bot instance.')
 args = parser.parse_args()
@@ -73,6 +74,8 @@ def slugify(wikilink):
 
 def log_toot(toot, node):
     if not args.output_dir:
+        # note this actually means that if output_dir is not set up this bot won't respond to messages,
+        # as the caller currently thinks False -> do not post (to prevent duplicates).
         return False
 
     if ('/' in node):
@@ -121,7 +124,7 @@ class AgoraBot(StreamListener):
         status = self.mastodon.status_reblog(id)
 
     def handle_wikilink(self, status, match=None):
-        L.info(f'seen wikilink: {status}, {match}')
+        L.info(f'seen wikilink: {status.content}, {match}')
         if random.random() < P_HELP:
             self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status.id)
         wikilinks = WIKILINK_RE.findall(status.content)
@@ -239,15 +242,20 @@ def main():
             L.info(f'fetching latest toots by user {user.acct}')
             statuses = mastodon.account_statuses(user['id'])
             for status in statuses:
-                # still needs to handle deduping.
+                # this should handle deduping, so it's safe to always try to reply.
                 bot.handle_update(status)
 
-    mastodon.stream_user(bot, run_async=True)
-    L.info('[[agora bot]] starting streaming.')
-    # why are the parameters flipped for this call?
-    mastodon.stream_list(watching, bot)
-
-    # mastodon.status_post("[[agora bot]] v0.9 initializing, please wait.")
+    # why do we have both? hmm.
+    # TODO(flancian): look in commit history or try disabling one.
+    # it would be nice to get rid of lists if we can.
+    L.info('trying to stream user.')
+    mastodon.stream_user(bot, run_async=True, reconnect_async=True)
+    L.info('trying to stream list.')
+    mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
+    L.info('now streaming.')
+    while True:
+        time.sleep(3600 * 24)
+        L.info('[[agora mastodon bot]] is still alive.')
 
 if __name__ == "__main__":
     main()

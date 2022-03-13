@@ -89,7 +89,7 @@ def log_toot(toot, node):
         with open(filename, 'r') as note:
             note = note.read()
             L.info(f"Note: {note}.")
-            if note and toot.url in note:
+            if note and (toot.url or toot.uri) in note:
                 L.info("Toot already logged to note.")
                 return False
             else:
@@ -100,7 +100,10 @@ def log_toot(toot, node):
     # try to append.
     try:
         with open(filename, 'a') as note:
-            note.write(f"- [[{toot.account.username}]] {toot.url}\n")
+            if toot.url:
+                note.write(f"- [[{toot.account.username}]] {toot.url}\n")
+            else:
+                note.write(f"- [[{toot.account.username}]] {toot.uri}\n")
             return True
     except: 
         L.error("Couldn't log toot to note.")

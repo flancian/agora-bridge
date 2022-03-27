@@ -45,7 +45,7 @@ L = logging.getLogger('pull')
 if args.verbose:
     L.setLevel(logging.DEBUG)
 else:
-    L.setLevel(logging.WARN)
+    L.setLevel(logging.INFO)
 
 Q = JoinableQueue()
 WORKERS = 2
@@ -53,14 +53,19 @@ WORKERS = 2
 def git_clone(url, path):
 
     if os.path.exists(path):
-        L.warning(f"{path} exists, won't clone to it.")
+        L.info(f"{path} exists, won't clone to it.")
         return 42
+
     L.info(f"Running git clone {url} to path {path}")
 
-    output = subprocess.run(['git', 'clone', url, path], capture_output=True)
-    L.info(output)
-    if output.stderr:
-        L.info(output.stderr)
+    try:
+        subprocess.run(['git', 'clone', url, path], timeout=10)
+    except subprocess.TimeoutExpired as e:
+        L.warning(f"Couldn't clone repo {url}, skipping.")
+
+    # L.info(output)
+    # if output.stderr:
+    #     L.error(f'{url}: {output.stderr}')
 
 def git_pull(path):
 
@@ -74,10 +79,15 @@ def git_pull(path):
         L.error(f"Couldn't pull in {path} due to the directory being missing, clone must be run first")
 
     L.info(f"Running git pull in path {path}")
-    output = subprocess.run(['git', 'pull'], capture_output=True)
-    L.info(output.stdout)
-    if output.stderr:
-        L.info(output.stderr)
+    try:
+        # output = subprocess.run(['git', 'pull'], capture_output=True, timeout=10)
+        subprocess.run(['git', 'pull'], timeout=10)
+    except subprocess.TimeoutExpired as e:
+        L.warning(f"Couldn't pull repo in path {path}, skipping.")
+
+    #L.info(output.stdout)
+    #if output.stderr:
+    #    L.error(f'{path}: {output.stderr}')
 
 def fedwiki_import(url, path):
     os.chdir(this_path)
@@ -86,7 +96,7 @@ def fedwiki_import(url, path):
 
 def worker():
     while True:
-        L.info("Queue size: {}".format(Q.qsize()))
+        L.debug("Queue size: {}".format(Q.qsize()))
         task = Q.get(block=True, timeout=60)
         task[0](*task[1:])
         Q.task_done()

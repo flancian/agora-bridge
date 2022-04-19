@@ -140,7 +140,7 @@ class AgoraBot(StreamListener):
         if status.mentions:
             # if other people are mentioned in the thread, only at mention them if they also follow us.
             # see https://social.coop/@flancian/108153868738763998 for reasoning.
-            followers = self.mastodon.account_followers(mastodon.me().id)
+            followers = [x['acct'] for x in self.mastodon.account_followers(self.mastodon.me().id)]
             for mention in status.mentions:
                 if mention['acct'] in followers:
                     mentions += f"@{mention['acct']} "

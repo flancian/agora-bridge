@@ -61,10 +61,12 @@ else:
 def slugify(wikilink):
     # trying to keep it light here for simplicity, wdyt?
     # c.f. util.py in [[agora server]].
+    # argh, this should really really be centralized/factored out, but the fact that we have two different repos makes this a bit harder than I'd like (without introducing cross-repo dependencies).
     slug = (
             wikilink.lower()
             .strip()
             .replace(',', ' ')
+            .replace("'", ' ')
             .replace(';', ' ')
             .replace(':', ' ')
             .replace('  ', '-')
@@ -133,9 +135,15 @@ class AgoraBot(StreamListener):
         wikilinks = WIKILINK_RE.findall(status.content)
         lines = []
 
-        mentions = ""
-        for mention in [status['account']] + status.mentions:
-            mentions += f"@{mention['acct']} "
+        # always at-mention at least the original author.
+        mentions = f"@{status['account']['acct']} "
+        if status.mentions:
+            # if other people are mentioned in the thread, only at mention them if they also follow us.
+            # see https://social.coop/@flancian/108153868738763998 for reasoning.
+            followers = self.mastodon.account_followers(mastodon.me().id)
+            for mention in status.mentions:
+                if mention['acct'] in followers:
+                    mentions += f"@{mention['acct']} "
 
         lines.append(mentions)
 

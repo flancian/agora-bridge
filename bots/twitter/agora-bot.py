@@ -507,7 +507,7 @@ def process_mentions(api, since_id):
         # Process commands, in order of priority
         cmds = [
                 (HELP_RE, handle_help),
-                (PUSH_RE, handle_push),
+                #(PUSH_RE, handle_push),
                 (WIKILINK_RE, handle_wikilink),
                 (DEFAULT_RE, handle_default),
                 ]

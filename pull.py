@@ -59,7 +59,7 @@ def git_clone(url, path):
     L.info(f"Running git clone {url} to path {path}")
 
     try:
-        subprocess.run(['git', 'clone', url, path], timeout=10)
+        process = subprocess.run(['timeout', '10', 'git', 'clone', url, path], timeout=20)
     except subprocess.TimeoutExpired as e:
         L.warning(f"Couldn't clone repo {url}, skipping.")
 
@@ -81,7 +81,7 @@ def git_pull(path):
     L.info(f"Running git pull in path {path}")
     try:
         # output = subprocess.run(['git', 'pull'], capture_output=True, timeout=10)
-        subprocess.run(['git', 'pull'], timeout=10)
+        process = subprocess.run(['timeout', '10', 'git', 'pull'], timeout=20)
     except subprocess.TimeoutExpired as e:
         L.warning(f"Couldn't pull repo in path {path}, skipping.")
 

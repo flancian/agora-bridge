@@ -35,6 +35,7 @@ import re
 import requests
 import time
 import tweepy
+import urllib
 import yaml
 
 # Bot logic globals.
@@ -42,10 +43,11 @@ import yaml
 PUSH_RE = re.compile(r'\[\[push\]\](\s(\S+))?', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
+HASHTAG_RE = re.compile(r'#(\S+)', re.IGNORECASE)
 # Always matches.
 DEFAULT_RE = re.compile(r'.', re.IGNORECASE)
 # Unused for now.
-P_HELP = 0.2
+P_HELP = 0.1
 
 # https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
 class readable_dir(argparse.Action):
@@ -388,6 +390,22 @@ def handle_wikilink(api, tweet, match=None):
     if reply_to_tweet(api, response, tweet):
         L.info(f'# Replied to {tweet.id}')
 
+def handle_hashtag(api, tweet, match=None):
+    L.info(f'-> Handling hashtag: {match.group(0)}')
+    L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
+    hashtags = HASHTAG_RE.findall(tweet.full_text)
+    lines = []
+    for hashtag in hashtags:
+        path = urllib.parse.quote_plus(hashtag)
+        lines.append(f'https://anagora.org/{path}')
+        log_tweet(tweet, hashtag)
+
+    response = '\n'.join(lines)
+    L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
+    L.info(f'-> Considering reply to {tweet.id}')
+    if reply_to_tweet(api, response, tweet):
+        L.info(f'# Replied to {tweet.id}')
+
 def is_friend(api, user):
     followers = get_followers(api)
     if not followers:
@@ -509,6 +527,7 @@ def process_mentions(api, since_id):
                 (HELP_RE, handle_help),
                 #(PUSH_RE, handle_push),
                 (WIKILINK_RE, handle_wikilink),
+                (HASHTAG_RE, handle_hashtag),
                 (DEFAULT_RE, handle_default),
                 ]
         for regexp, handler in cmds:

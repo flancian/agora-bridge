@@ -22,14 +22,18 @@ import os
 import random
 import re
 import time
+import urllib
 import yaml
 
+from collections import OrderedDict
 from datetime import datetime
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
+# thou shall not use regexes to parse html, except when yolo
+HASHTAG_RE = re.compile(r'#<span>(\S*)</span>', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
-P_HELP = 0.0
+P_HELP = 0.1
 
 # https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
 class readable_dir(argparse.Action):
@@ -74,42 +78,51 @@ def slugify(wikilink):
             )
     return slug
 
-def log_toot(toot, node):
+def uniq(l):
+    # also orders, because actually it works better.
+    # return list(OrderedDict.fromkeys(l))
+    # only works for hashable items
+    return sorted(list(set(l)), key=str.casefold)
+
+def log_toot(toot, nodes):
     if not args.output_dir:
         # note this actually means that if output_dir is not set up this bot won't respond to messages,
         # as the caller currently thinks False -> do not post (to prevent duplicates).
         return False
 
-    if ('/' in node):
-        # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
-        node = os.path.split(node)[-1]
+    for node in nodes:
+        if ('/' in node):
+            # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+            node = os.path.split(node)[-1]
 
-    filename = os.path.join(args.output_dir, node + '.md')
+        filename = os.path.join(args.output_dir, node + '.md')
 
-    # dedup logic.
-    try:
-        with open(filename, 'r') as note:
-            note = note.read()
-            L.info(f"Note: {note}.")
-            if note and (toot.url or toot.uri) in note:
-                L.info("Toot already logged to note.")
-                return False
-            else:
-                L.info("Toot was logged to note.")
-    except FileNotFoundError:
-        pass
+        # dedup logic.
+        try:
+            with open(filename, 'r') as note:
+                note = note.read()
+                L.info(f"Note: {note}.")
+                # why both? it has been lost to the mists of time, or maybe the commit log :)
+                # perhaps uri is what's set in pleroma?
+                if note and (toot.url or toot.uri) in note:
+                    L.info("Toot already logged to note.")
+                    return False
+                else:
+                    L.info("Toot will be logged to note.")
+        except FileNotFoundError:
+            pass
 
-    # try to append.
-    try:
-        with open(filename, 'a') as note:
-            if toot.url:
-                note.write(f"- [[{toot.account.username}]] {toot.url}\n")
-            else:
-                note.write(f"- [[{toot.account.username}]] {toot.uri}\n")
-            return True
-    except: 
-        L.error("Couldn't log toot to note.")
-        return False
+        # try to append.
+        try:
+            with open(filename, 'a') as note:
+                if toot.url:
+                    note.write(f"- [[{toot.account.username}]] {toot.url}\n")
+                else:
+                    note.write(f"- [[{toot.account.username}]] {toot.uri}\n")
+        except: 
+            L.error("Couldn't log toot to note.")
+            return False
+    return True
 
 class AgoraBot(StreamListener):
     """main class for [[agora bot]] for [[mastodon]]."""
@@ -128,11 +141,9 @@ class AgoraBot(StreamListener):
         L.info('boosting toot.')
         status = self.mastodon.status_reblog(id)
 
-    def handle_wikilink(self, status, match=None):
-        L.info(f'seen wikilink: {status.content}, {match}')
+    def build_reply(self, status, entities):
         if random.random() < P_HELP:
-            self.send_toot('If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets.', status.id)
-        wikilinks = WIKILINK_RE.findall(status.content)
+            self.send_toot('If an Agora hears about a [[wikilink]] or #hashtag, it will try to resolve them for you and link your resources in the [[nodes]] or #nodes you mention.', status.id)
         lines = []
 
         # always at-mention at least the original author.
@@ -147,22 +158,39 @@ class AgoraBot(StreamListener):
 
         lines.append(mentions)
 
-        for wikilink in wikilinks:
-            slug = slugify(wikilink)
-            lines.append(f'https://anagora.org/{slug}')
+        for entity in entities:
+            # slug = slugify(wikilink)
+            path = urllib.parse.quote_plus(entity)
+            lines.append(f'https://anagora.org/{path}')
 
         msg = '\n'.join(lines)
+        return msg
+
+    def maybe_reply(self, status, msg, entities):
 
         if args.dry_run:
-            L.info(f"-> not replying due to dry run")
-            L.info(f"-> message would be: {msg}")
+            L.info(f"-> not replying due to dry run, message would be: {msg}")
             return False
 
         # we use the log as a database :)
-        if log_toot(status, wikilink):
+        if log_toot(status, entities):
             self.send_toot(msg, status.id)
         else:
-            L.info("-> not replying due to failed logging, trying to avoid duplicates.")
+            L.info("-> not replying due to failed or redundant logging, skipping to avoid duplicates.")
+
+    def handle_wikilink(self, status, match=None):
+        L.info(f'handling at least one wikilink: {status.content}, {match}')
+        wikilinks = WIKILINK_RE.findall(status.content)
+        entities = uniq(wikilinks)
+        msg = self.build_reply(status, entities)
+        self.maybe_reply(status, msg, entities)
+
+    def handle_hashtag(self, status, match=None):
+        L.info(f'handling at least one hashtag: {status.content}, {match}')
+        hashtags = HASHTAG_RE.findall(status.content)
+        entities = uniq(hashtags)
+        msg = self.build_reply(status, entities)
+        self.maybe_reply(status, msg, entities)
 
     def handle_push(self, status, match=None):
         L.info(f'seen push: {status}, {match}')
@@ -177,7 +205,8 @@ class AgoraBot(StreamListener):
         L.info('Got a mention!')
         # Process commands, in order of priority
         cmds = [(PUSH_RE, self.handle_push),
-                (WIKILINK_RE, self.handle_wikilink)]
+                (WIKILINK_RE, self.handle_wikilink),
+                (HASHTAG_RE, self.handle_hashtag)]
         for regexp, handler in cmds:
             match = regexp.search(status.content)
             if match:
@@ -188,11 +217,12 @@ class AgoraBot(StreamListener):
         """Handle toots with [[patterns]] by people that follow us."""
         # Process commands, in order of priority
         cmds = [(PUSH_RE, self.handle_push),
-                (WIKILINK_RE, self.handle_wikilink)]
+                (WIKILINK_RE, self.handle_wikilink),
+                (HASHTAG_RE, self.handle_hashtag)]
         for regexp, handler in cmds:
             match = regexp.search(status.content)
             if match:
-                L.info('Got a status with a pattern!')
+                L.info(f'Got a status with a pattern! {status.url}')
                 handler(status, match)
                 return
 

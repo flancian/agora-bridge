@@ -43,7 +43,7 @@ import yaml
 PUSH_RE = re.compile(r'\[\[push\]\](\s(\S+))?', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
-HASHTAG_RE = re.compile(r'#(\S+)', re.IGNORECASE)
+HASHTAG_RE = re.compile(r'#(\w+)', re.IGNORECASE)
 # Always matches.
 DEFAULT_RE = re.compile(r'.', re.IGNORECASE)
 # Unused for now.

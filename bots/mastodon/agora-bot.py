@@ -31,7 +31,7 @@ from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetwork
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 # thou shall not use regexes to parse html, except when yolo
-HASHTAG_RE = re.compile(r'#<span>(\S*)</span>', re.IGNORECASE)
+HASHTAG_RE = re.compile(r'#<span>(\w+)</span>', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
 P_HELP = 0.1
 

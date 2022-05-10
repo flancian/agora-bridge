@@ -180,6 +180,9 @@ class AgoraBot(StreamListener):
 
     def handle_wikilink(self, status, match=None):
         L.info(f'handling at least one wikilink: {status.content}, {match}')
+        if status['reblog']:
+            L.info(f'Not handling boost.')
+            return True
         wikilinks = WIKILINK_RE.findall(status.content)
         entities = uniq(wikilinks)
         msg = self.build_reply(status, entities)
@@ -191,6 +194,9 @@ class AgoraBot(StreamListener):
         if 'bmann' in user:
             L.info(f'Opting out user {user} from hashtag handling.')
             return True 
+        if status['reblog']:
+            L.info(f'Not handling boost.')
+            return True
         hashtags = HASHTAG_RE.findall(status.content)
         entities = uniq(hashtags)
         msg = self.build_reply(status, entities)

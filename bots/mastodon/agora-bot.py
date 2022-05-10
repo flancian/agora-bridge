@@ -33,7 +33,8 @@ WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 # thou shall not use regexes to parse html, except when yolo
 HASHTAG_RE = re.compile(r'#<span>(\w+)</span>', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
-P_HELP = 0.1
+# Buggy, do not enable without revamping build_reply()
+P_HELP = 0.0
 
 # https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
 class readable_dir(argparse.Action):

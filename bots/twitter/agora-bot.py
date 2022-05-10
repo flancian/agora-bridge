@@ -378,10 +378,15 @@ def handle_wikilink(api, tweet, match=None):
     L.info(f'-> Handling wikilink: {match.group(0)}')
     L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
     wikilinks = WIKILINK_RE.findall(tweet.full_text)
+
+    if tweet.retweeted:
+        L.info(f'# Skipping retweet: {tweet.id}')
+        return True
+
     lines = []
     for wikilink in wikilinks:
-        slug = slugify(wikilink)
-        lines.append(f'https://anagora.org/{slug}')
+        path = urllib.parse.quote_plus(wikilink)
+        lines.append(f'https://anagora.org/{path}')
         log_tweet(tweet, wikilink)
 
     response = '\n'.join(lines)
@@ -394,6 +399,11 @@ def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')
     L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
     hashtags = HASHTAG_RE.findall(tweet.full_text)
+
+    if tweet.retweeted:
+        L.info(f'# Skipping retweet: {tweet.id}')
+        return True
+
     lines = []
     for hashtag in hashtags:
         path = urllib.parse.quote_plus(hashtag)

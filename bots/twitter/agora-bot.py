@@ -465,9 +465,20 @@ def handle_help(api, tweet, match=None):
     reply_to_tweet(api, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', tweet, upto=2)
 
 def handle_default(api, tweet, match=None):
-    L.debug(f'-> Handling default case, no clear intent present')
+    L.info(f'-> Handling default case, no clear intent present')
     # perhaps hand back a link if we have a node that seems relevant?
     # reply_to_tweet(api, 'Would you like help?', tweet)
+
+@cachetools.func.ttl_cache(ttl=600)
+def get_friends(api):
+    L.info('*** get friends refreshing')
+    try:
+        friends = list(tweepy.Cursor(api.friends).items())
+    except tweepy.error.RateLimitError:
+        # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+        friends = []
+    L.info(f'*** friends: {friends}')
+    return friends
 
 @cachetools.func.ttl_cache(ttl=600)
 def get_followers(api):
@@ -481,13 +492,23 @@ def get_followers(api):
     return followers
 
 def follow_followers(api):
-    L.info("# Retrieving and following back followers")
-    if args.dry_run:
-        return False
+    L.info("# Retrieving friends, followers")
+    friends = get_friends(api)
+    followers = get_followers(api)
+    L.info(f"# friends: {friends}")
+    L.info(f"# followers: {followers}")
 
-    for follower in get_followers(api): 
+    # if args.dry_run:
+    #     return False
+
+    for friend in friends:
+        if friend not in followers:
+            L.info(f"# Would unfollow {friend.name} as they don't follow us.")
+            # friend.unfollow()
+
+    for follower in followers:
         if not follower.following:
-            L.info(f"# Following {follower.name} back")
+            L.info(f"# Trying to follow {follower.name} back")
             try:
                 follower.follow()
             except tweepy.error.TweepError:
@@ -537,14 +558,14 @@ def process_mentions(api, since_id):
                 (HELP_RE, handle_help),
                 #(PUSH_RE, handle_push),
                 (WIKILINK_RE, handle_wikilink),
-                (HASHTAG_RE, handle_hashtag),
+                #disabled while we re-apply friends limits, work around intense throttling for no obvious reason (wikilinks work because few people use them.)
+                #(HASHTAG_RE, handle_hashtag),
                 (DEFAULT_RE, handle_default),
                 ]
         for regexp, handler in cmds:
             match = regexp.search(tweet.full_text.lower())
             if match:
                 handler(api, tweet, match)
-                break
         L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
         L.debug(f'*' * 80)
         new_since_id = max(tweet.id, new_since_id)
@@ -639,13 +660,15 @@ def main():
     auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
     auth.set_access_token(ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
 
+    # give this another try?
+    # api = tweepy.API(auth, wait_on_rate_limit=True)
     api = tweepy.API(auth)
     L.info('[[agora bot]] starting.')
 
     while True: 
         try: 
-            since_id = process_mentions(api, since_id)
             follow_followers(api)
+            since_id = process_mentions(api, since_id)
         except tweepy.error.TweepError as e:
             L.info(e)
             L.error("# Twitter api rate limit reached".format(e))

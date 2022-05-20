@@ -25,6 +25,9 @@ from multiprocessing import Pool, JoinableQueue, Process
 import subprocess
 this_path = os.getcwd()
 
+# for git commands, in seconds.
+TIMEOUT="10"
+
 def dir_path(string):
     if not os.path.isdir(string):
         print(f"Trying to create {string}.")
@@ -60,7 +63,7 @@ def git_clone(url, path):
     L.info(f"Running git clone {url} to path {path}")
 
     try:
-        process = subprocess.run(['timeout', '10', 'git', 'clone', url, path], capture_output=True)
+        process = subprocess.run(['timeout', TIMEOUT, 'git', 'clone', url, path], capture_output=True)
     except subprocess.TimeoutExpired as e:
         # should not happen since we now call out to 'timeout' command.
         L.warning(f"Couldn't clone repo {url}, skipping.")
@@ -83,7 +86,7 @@ def git_pull(path):
     L.info(f"Running git pull in path {path}")
     try:
         # output = subprocess.run(['git', 'pull'], capture_output=True, timeout=10)
-        output = subprocess.run(['timeout', '10', 'git', 'pull'], capture_output=True)
+        output = subprocess.run(['timeout', TIMEOUT, 'git', 'pull'], capture_output=True)
     except subprocess.TimeoutExpired as e:
         # should not happen since we now call out to 'timeout' command.
         L.warning(f"Error while pulling repo in path {path}, skipping.")
@@ -95,10 +98,10 @@ def git_pull(path):
             L.info(f'Trying to git reset --hard')
             # no need to run git fetch origin first because we just failed a push?
             # ...no, actually pull can fail before fetching.
-            subprocess.run(['git', 'fetch', 'origin'])
+            subprocess.run(['timeout', TIMEOUT, 'git', 'fetch', 'origin'])
             branch = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True).stdout.strip()
             branch = branch.decode("utf-8")
-            output = subprocess.run(['timeout', '10', 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)
+            output = subprocess.run(['timeout', TIMEOUT, 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)
             L.info(f'output: {output.stdout}')
             L.error(output.stderr)
 

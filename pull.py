@@ -41,6 +41,7 @@ parser.add_argument('--config', dest='config', type=argparse.FileType('r'), requ
 parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where the digital gardens will be stored (one subdirectory per user).')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--reset', dest='reset', type=bool, default=False, help='Whether to git reset --hard whenever a pull fails.')
+parser.add_argument('--reset_only', dest='reset_only', type=bool, default=False, help='Whether do reset --hard instead of pulling.')
 parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
 args = parser.parse_args()
 
@@ -72,6 +73,17 @@ def git_clone(url, path):
     if output.stderr:
         L.error(f'Error while cloning {url}: {output.stderr}')
 
+def git_reset(path):
+    L.info(f'Trying to git reset --hard')
+    subprocess.run(['timeout', TIMEOUT, 'git', 'fetch', 'origin'])
+    branch = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True).stdout.strip()
+    branch = branch.decode("utf-8")
+    output = subprocess.run(['timeout', TIMEOUT, 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)
+    L.info(f'output: {output.stdout}')
+    if output.stderr:
+        L.error(output.stderr)
+
+
 def git_pull(path):
 
     if not os.path.exists(path):
@@ -83,6 +95,11 @@ def git_pull(path):
     except FileNotFoundError:
         L.error(f"Couldn't pull in {path} due to the directory being missing, clone must be run first")
 
+    if args.reset_only:
+        git_reset(path)
+        return
+
+    # Is there a value to trying pull first? Could we just reset --hard?
     L.info(f"Running git pull in path {path}")
     try:
         # output = subprocess.run(['git', 'pull'], capture_output=True, timeout=10)
@@ -95,15 +112,7 @@ def git_pull(path):
     if output.stderr:
         L.error(f'{path}: {output.stderr}')
         if args.reset:
-            L.info(f'Trying to git reset --hard')
-            # no need to run git fetch origin first because we just failed a push?
-            # ...no, actually pull can fail before fetching.
-            subprocess.run(['timeout', TIMEOUT, 'git', 'fetch', 'origin'])
-            branch = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True).stdout.strip()
-            branch = branch.decode("utf-8")
-            output = subprocess.run(['timeout', TIMEOUT, 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)
-            L.info(f'output: {output.stdout}')
-            L.error(output.stderr)
+            git_reset(path)
 
 def fedwiki_import(url, path):
     os.chdir(this_path)

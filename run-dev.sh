@@ -14,4 +14,4 @@
 # limitations under the License.
 
 . venv/bin/activate 
-./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 0.5 --reset True
+./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 0.5 --reset_only True

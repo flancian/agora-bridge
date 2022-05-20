@@ -91,9 +91,11 @@ def git_pull(path):
     L.info(output.stdout)
     if output.stderr:
         L.error(f'{path}: {output.stderr}')
-        # no need to run git fetch origin first because we just failed a push?
         if args.reset:
             L.info(f'Trying to git reset --hard')
+            # no need to run git fetch origin first because we just failed a push?
+            # ...no, actually pull can fail before fetching.
+            subprocess.run(['git', 'fetch', 'origin'])
             branch = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True).stdout.strip()
             branch = branch.decode("utf-8")
             output = subprocess.run(['timeout', '10', 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)

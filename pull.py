@@ -37,6 +37,7 @@ parser = argparse.ArgumentParser(description='Agora Bridge')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to a YAML file describing the digital gardens to consume.')
 parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where the digital gardens will be stored (one subdirectory per user).')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--reset', dest='reset', type=bool, default=False, help='Whether to git reset --hard whenever a pull fails.')
 parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
 args = parser.parse_args()
 
@@ -59,13 +60,14 @@ def git_clone(url, path):
     L.info(f"Running git clone {url} to path {path}")
 
     try:
-        process = subprocess.run(['timeout', '10', 'git', 'clone', url, path], timeout=20)
+        process = subprocess.run(['timeout', '10', 'git', 'clone', url, path], capture_output=True)
     except subprocess.TimeoutExpired as e:
+        # should not happen since we now call out to 'timeout' command.
         L.warning(f"Couldn't clone repo {url}, skipping.")
 
-    # L.info(output)
-    # if output.stderr:
-    #     L.error(f'{url}: {output.stderr}')
+    L.info(output)
+    if output.stderr:
+        L.error(f'Error while cloning {url}: {output.stderr}')
 
 def git_pull(path):
 
@@ -81,13 +83,22 @@ def git_pull(path):
     L.info(f"Running git pull in path {path}")
     try:
         # output = subprocess.run(['git', 'pull'], capture_output=True, timeout=10)
-        process = subprocess.run(['timeout', '10', 'git', 'pull'], timeout=20)
+        output = subprocess.run(['timeout', '10', 'git', 'pull'], capture_output=True)
     except subprocess.TimeoutExpired as e:
-        L.warning(f"Couldn't pull repo in path {path}, skipping.")
+        # should not happen since we now call out to 'timeout' command.
+        L.warning(f"Error while pulling repo in path {path}, skipping.")
 
-    #L.info(output.stdout)
-    #if output.stderr:
-    #    L.error(f'{path}: {output.stderr}')
+    L.info(output.stdout)
+    if output.stderr:
+        L.error(f'{path}: {output.stderr}')
+        # no need to run git fetch origin first because we just failed a push?
+        if args.reset:
+            L.info(f'Trying to git reset --hard')
+            branch = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True).stdout.strip()
+            branch = branch.decode("utf-8")
+            output = subprocess.run(['timeout', '10', 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)
+            L.info(f'output: {output.stdout}')
+            L.error(output.stderr)
 
 def fedwiki_import(url, path):
     os.chdir(this_path)

@@ -40,6 +40,8 @@ import yaml
 
 # Bot logic globals.
 # Regexes are in order of precedence.
+OPT_OUT_RE = re.compile(r'\[\[opt out\]\](\s(\S+))?', re.IGNORECASE)
+OPT_IN_RE = re.compile(r'\[\[opt in\]\](\s(\S+))?', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\](\s(\S+))?', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
@@ -335,6 +337,27 @@ def log_tweet(tweet, node):
     except: 
         L.error("Couldn't log tweet to note.")
 
+def is_mentioned_in(user, node):
+    if not args.output_dir:
+        return False
+
+    if ('/' in node):
+        # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+        node = os.path.split(node)[-1]
+
+    filename = os.path.join(args.output_dir, node + '.md')
+
+    try:
+        with open(filename, 'r') as note:
+            if f'[[{user}]]' in note.read():
+                L.info(f"User {user} is mentioned in {node}.")
+                return True
+            else:
+                L.info(f"User {user} not mentioned in {node}.")
+                return False
+    except FileNotFoundError:
+        return False
+
 def yaml_dump_tweets(tweets):
     with open(args.tweets.name, 'w') as out:
         yaml.dump(TWEETS, out)
@@ -398,16 +421,19 @@ def handle_wikilink(api, tweet, match=None):
 
 def wants_hashtags(user):
     # Allowlist to begin with.
-    # This should be inferred from the corpus, e.g. does the Agora contain a mention of the user opting in?
     WANTS_HASHTAGS = ['flancian']
-    return user.screen_name in WANTS_HASHTAGS
+
+    # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
+    return user.screen_name in WANTS_HASHTAGS or (
+        is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags')
+        )
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')
     L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
     hashtags = HASHTAG_RE.findall(tweet.full_text)
-    # this is disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
-    # [[opt in]] goes here :)
+    # hashtag handling was disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
+    # now we support basic opt in, as of 2022-05-21 this is off by default.
     if not wants_hashtags(tweet.user):
         L.info(f'# User has not opted into hashtag handling yet: {tweet.user.screen_name}')
         return False
@@ -468,8 +494,30 @@ def handle_push(api, tweet, match=None):
             L.info(f'## Skipping duplicate retweet.')
             return False
 
-    # Also volunteer other links?
-    # handle_wikilink(api, tweet, match)
+# TODO: implement, as in actually store the opt in/opt out message in the Agora.
+def handle_opt_in(api, tweet, match=None):
+    L.info(f'# Handling #optin: {match.group(0)}')
+
+    if args.dry_run:
+        L.info(f'# Skipping storing opt in due to dry run.')
+        return False
+    else:
+        L.info(f'# This is where we try to opt in a user.')
+        if log_tweet(tweet, 'hashtags'):
+            reply_to_tweet(api, 'Opted you into #hashtag management, you can also #OptOut.', tweet)
+        return True
+
+def handle_opt_out(api, tweet, match=None):
+    L.info(f'# Handling #optout: {match.group(0)}')
+
+    if args.dry_run:
+        L.info(f'# Skipping storing opt out due to dry run.')
+        return False
+    else:
+        L.info(f'# This is where we would opt out a user.')
+        if log_tweet(tweet, 'nohashtags'):
+            reply_to_tweet(api, 'Opted you out of #hashtag management and other advanced features by this Agora, you can also [[opt in]].', tweet)
+        return True
 
 def handle_help(api, tweet, match=None):
     L.info(f'# Handling [[help]]: {tweet}, {match}')
@@ -571,6 +619,8 @@ def process_mentions(api, since_id):
         cmds = [
                 (HELP_RE, handle_help),
                 #(PUSH_RE, handle_push),
+                (OPT_IN_RE, handle_opt_in),
+                (OPT_OUT_RE, handle_opt_out),
                 (WIKILINK_RE, handle_wikilink),
                 (HASHTAG_RE, handle_hashtag),
                 (DEFAULT_RE, handle_default),

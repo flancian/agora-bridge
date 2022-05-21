@@ -64,7 +64,7 @@ def git_clone(url, path):
     L.info(f"Running git clone {url} to path {path}")
 
     try:
-        process = subprocess.run(['timeout', TIMEOUT, 'git', 'clone', url, path], capture_output=True)
+        output = subprocess.run(['timeout', TIMEOUT, 'git', 'clone', url, path], capture_output=True)
     except subprocess.TimeoutExpired as e:
         # should not happen since we now call out to 'timeout' command.
         L.warning(f"Couldn't clone repo {url}, skipping.")

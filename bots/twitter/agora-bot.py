@@ -425,10 +425,8 @@ def wants_hashtags(user):
 
     # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
     return user.screen_name in WANTS_HASHTAGS or (
-        is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags') or (
-        is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout') or (
-        )
-        )
+        is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags')) or (
+        is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout'))
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')

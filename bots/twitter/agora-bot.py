@@ -400,7 +400,7 @@ def wants_hashtags(user):
     # Allowlist to begin with.
     # This should be inferred from the corpus, e.g. does the Agora contain a mention of the user opting in?
     WANTS_HASHTAGS = ['flancian']
-    return user in WANTS_HASHTAGS
+    return user.screen_name in WANTS_HASHTAGS
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')
@@ -409,9 +409,9 @@ def handle_hashtag(api, tweet, match=None):
     # this is disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
     # [[opt in]] goes here :)
     if not wants_hashtags(tweet.user):
-        L.info(f'# User has not opted into hashtag handling yet: {tweet.user}')
+        L.info(f'# User has not opted into hashtag handling yet: {tweet.user.screen_name}')
         return False
-    L.info(f'# Handling hashtags for opted-in user {tweet.user}')
+    L.info(f'# Handling hashtags for opted-in user {tweet.user.screen_name}')
 
     # unsure if we really want to skip this, in particular now that we're doing allowlisting?
     # if tweet.retweeted:

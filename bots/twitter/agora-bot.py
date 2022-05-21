@@ -421,11 +421,13 @@ def handle_wikilink(api, tweet, match=None):
 
 def wants_hashtags(user):
     # Allowlist to begin with.
-    WANTS_HASHTAGS = ['flancian']
+    WANTS_HASHTAGS = ['codexeditor', 'ChrisAldrich']
 
     # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
     return user.screen_name in WANTS_HASHTAGS or (
-        is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags')
+        is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags') or (
+        is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout') or (
+        )
         )
 
 def handle_hashtag(api, tweet, match=None):

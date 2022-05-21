@@ -428,7 +428,6 @@ def wants_hashtags(user):
         is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags') or (
         is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout') or (
         )
-        )
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')

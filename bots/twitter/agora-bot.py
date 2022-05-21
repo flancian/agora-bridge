@@ -392,17 +392,31 @@ def handle_wikilink(api, tweet, match=None):
     response = '\n'.join(lines)
     L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
     L.info(f'-> Considering reply to {tweet.id}')
+
     if reply_to_tweet(api, response, tweet):
         L.info(f'# Replied to {tweet.id}')
+
+def wants_hashtags(user):
+    # Allowlist to begin with.
+    # This should be inferred from the corpus, e.g. does the Agora contain a mention of the user opting in?
+    WANTS_HASHTAGS = ['flancian']
+    return user in WANTS_HASHTAGS
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')
     L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
     hashtags = HASHTAG_RE.findall(tweet.full_text)
+    # this is disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
+    # [[opt in]] goes here :)
+    if not wants_hashtags(tweet.user):
+        L.info(f'# User has not opted into hashtag handling yet: {tweet.user}')
+        return False
+    L.info(f'# Handling hashtags for opted-in user {tweet.user}')
 
-    if tweet.retweeted:
-        L.info(f'# Skipping retweet: {tweet.id}')
-        return True
+    # unsure if we really want to skip this, in particular now that we're doing allowlisting?
+    # if tweet.retweeted:
+    #     L.info(f'# Skipping retweet: {tweet.id}')
+    #     return True
 
     lines = []
     for hashtag in hashtags:
@@ -558,8 +572,7 @@ def process_mentions(api, since_id):
                 (HELP_RE, handle_help),
                 #(PUSH_RE, handle_push),
                 (WIKILINK_RE, handle_wikilink),
-                #disabled while we re-apply friends limits, work around intense throttling for no obvious reason (wikilinks work because few people use them.)
-                #(HASHTAG_RE, handle_hashtag),
+                (HASHTAG_RE, handle_hashtag),
                 (DEFAULT_RE, handle_default),
                 ]
         for regexp, handler in cmds:

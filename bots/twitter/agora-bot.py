@@ -40,8 +40,8 @@ import yaml
 
 # Bot logic globals.
 # Regexes are in order of precedence.
-OPT_OUT_RE = re.compile(r'\[\[opt out\]\](\s(\S+))?', re.IGNORECASE)
-OPT_IN_RE = re.compile(r'\[\[opt in\]\](\s(\S+))?', re.IGNORECASE)
+OPT_IN_RE = re.compile(r'#(optin|agora)', re.IGNORECASE)
+OPT_OUT_RE = re.compile(r'#(optout|noagora)', re.IGNORECASE)
 PUSH_RE = re.compile(r'\[\[push\]\](\s(\S+))?', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)

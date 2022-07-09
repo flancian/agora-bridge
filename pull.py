@@ -26,7 +26,7 @@ import subprocess
 this_path = os.getcwd()
 
 # for git commands, in seconds.
-TIMEOUT="10"
+TIMEOUT="60"
 
 def dir_path(string):
     if not os.path.isdir(string):
@@ -53,7 +53,7 @@ else:
     L.setLevel(logging.INFO)
 
 Q = JoinableQueue()
-WORKERS = 2
+WORKERS = 6
 
 def git_clone(url, path):
 

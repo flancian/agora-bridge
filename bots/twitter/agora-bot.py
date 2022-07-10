@@ -66,7 +66,7 @@ class readable_dir(argparse.Action):
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
-parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
@@ -80,10 +80,19 @@ if args.verbose:
 else:
     L.setLevel(logging.INFO)
 
+def mkdir(string):
+    if not os.path.isdir(string):
+        print(f"Trying to create {string}.")
+        output = subprocess.run(['mkdir', '-p', string], capture_output=True)
+        if output.stderr:
+            L.error(output.stderr)
+    return os.path.abspath(string)
+
 # and we're off!
 def slugify(wikilink):
     # trying to keep it light here for simplicity, wdyt?
     # c.f. util.py in [[agora server]].
+    # TODO(2022-06-19): we've mostly moved away from slugs in the Agora, they were a dead end. Check if this can be removed.
     slug = (
             wikilink.lower()
             .strip()
@@ -317,25 +326,38 @@ def log_tweet(tweet, node):
         # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
         node = os.path.split(node)[-1]
 
-    filename = os.path.join(args.output_dir, node + '.md')
-
-    # dedup logic.
+    # dedup logic. we use the agora bot's stream as log as that's data under the control of the Agora (we only store a link).
     try:
-        with open(filename, 'r') as note:
+        agora_stream_dir = mkdir(os.path.join(args.output_dir, BOT_USERNAME + '@twitter.com'))
+        agora_stream_filename = os.path.join(agora_stream_dir, node + '.md')
+
+        with open(agora_stream_filename, 'r') as note:
             if tweet_to_url(tweet) in note.read():
-                L.info("Tweet already logged to note.")
+                L.info("Tweet already logged to note, skipping logging.")
                 return False
-            else:
-                L.info("Tweet was logged to note.")
     except FileNotFoundError:
         pass
 
-    # try to append.
+    L.info("Tweet will be logged to note.")
+    # try to append the link to the tweet in the relevant node (in agora bot stream).
     try:
-        with open(filename, 'a') as note:
+        with open(agora_stream_filename, 'a') as note:
             note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n")
     except: 
         L.error("Couldn't log tweet to note.")
+        return
+
+    # try to write the full tweet if the user is known to have opted in (in the user's stream).
+    if wants_writes(user):
+        L.info(f"User {user} has opted in, logging full tweet to user stream.")
+        user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
+        user_stream_filename = os.path.join(user_stream_dir, node + '.md')
+        try:
+            with open(user_stream_filename, 'a') as note:
+                note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n  - {tweet.full_text}")
+        except:
+            L.error("Couldn't log full tweet to note.")
+            return
 
 def is_mentioned_in(user, node):
     if not args.output_dir:
@@ -426,6 +448,14 @@ def wants_hashtags(user):
     # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
     return user.screen_name in WANTS_HASHTAGS or (
         is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags')) or (
+        is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout'))
+
+def wants_writes(user):
+    # Allowlist to begin with.
+    WANTS_WRITES = []
+
+    # Trying to infer opt in status from the Agora: does the node 'optin' contain mention of the user opting in?
+    return user.screen_name in WANTS_WRITES or (
         is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout'))
 
 def handle_hashtag(api, tweet, match=None):
@@ -684,10 +714,12 @@ def process_mentions(api, since_id):
 
 def main():
     # Globals are a smell. This should all be in a class. See also bot logic globals up top.
+    # Update(2022-06-19): this still sucks I guess. This whole bot needs a revamp :)
     # API globals
     global BACKOFF 
     global BACKOFF_MAX
     global BOT_USER_ID 
+    global BOT_USERNAME
     global CONSUMER_KEY
     global CONSUMER_SECRET
     global ACCESS_TOKEN
@@ -714,6 +746,7 @@ def main():
     BACKOFF = 15
     BACKOFF_MAX = 60
     BOT_USER_ID = config['bot_user_id']
+    BOT_USERNAME = config.get('bot_username', 'an_agora')
     CONSUMER_KEY = config['consumer_key']
     CONSUMER_SECRET = config['consumer_secret']
     ACCESS_TOKEN = config['access_token']

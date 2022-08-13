@@ -205,6 +205,8 @@ class AgoraBot(StreamListener):
 
     def handle_push(self, status, match=None):
         L.info(f'seen push: {status}, {match}')
+        # This has a bug as of [[2022-08-13]], likely having to do with us not logging pushes to disk as with other triggers.
+        return False
         if args.dry_run:
             L.info("-> not replying due to dry run")
             return False
@@ -222,7 +224,6 @@ class AgoraBot(StreamListener):
             match = regexp.search(status.content)
             if match:
                 handler(status, match)
-                return
 
     def handle_update(self, status):
         """Handle toots with [[patterns]] by people that follow us."""
@@ -235,7 +236,6 @@ class AgoraBot(StreamListener):
             if match:
                 L.info(f'Got a status with a pattern! {status.url}')
                 handler(status, match)
-                return
 
     def on_notification(self, notification):
         # we get this for explicit mentions.

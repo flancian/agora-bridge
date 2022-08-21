@@ -457,8 +457,8 @@ def wants_writes(user):
     WANTS_WRITES = []
 
     # Trying to infer opt in status from the Agora: does the node 'optin' contain mention of the user opting in?
-    return user.screen_name in WANTS_WRITES or (
-        is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout'))
+    return user in WANTS_WRITES or (
+        is_mentioned_in(user, 'optin') and not is_mentioned_in(user, 'optout'))
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')

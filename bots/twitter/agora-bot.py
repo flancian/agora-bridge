@@ -348,7 +348,7 @@ def log_tweet(tweet, node):
         return
 
     # try to write the full tweet if the user is known to have opted in (in the user's stream).
-    if wants_writes(user):
+    if wants_writes(tweet.user.screen_name):
         L.info(f"User {user} has opted in, logging full tweet to user stream.")
         user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
         user_stream_filename = os.path.join(user_stream_dir, node + '.md')
@@ -358,6 +358,8 @@ def log_tweet(tweet, node):
         except:
             L.error("Couldn't log full tweet to note.")
             return
+    else:
+        L.info(f"User {user} has NOT opted in, skipping logging full tweet.")
 
 def is_mentioned_in(user, node):
     if not args.output_dir:

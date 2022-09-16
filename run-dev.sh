@@ -13,5 +13,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-. venv/bin/activate 
-./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 0.5 --reset_only True
+echo "If this doesn't work, install poetry and run 'poetry install' as per README.md first."
+poetry run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 0.5 --reset_only True

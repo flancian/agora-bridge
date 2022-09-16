@@ -8,10 +8,22 @@ See https://anagora.org/node/an-agora for more.
 
 ## Install
 
+Install poetry (as per https://python-poetry.org/docs/ and https://install.python-poetry.org, this is the recommended way of installing):
+
 ```
-python3 -m venv venv
-. venv/bin/activate
-pip install -r requirements.txt
+curl -sSL  https://install.python-poetry.org | python3 -
+```
+
+Install Python dependencies:
+```
+poetry install
+```
+
+If you get a virtualenv-related error above, try removing virtualenv if you had installed it separately: `pip3 uninstall virtualenv`.
+
+Then run the development server:
+```
+./run-dev.sh
 ```
 
 ## Usage

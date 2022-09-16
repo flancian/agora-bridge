@@ -349,7 +349,7 @@ def log_tweet(tweet, node):
 
     # try to write the full tweet if the user is known to have opted in (in the user's stream).
     if wants_writes(tweet.user.screen_name):
-        L.info(f"User {user} has opted in, logging full tweet to user stream.")
+        L.info(f"User {tweet.user.screen_name} has opted in, logging full tweet to user stream.")
         user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
         user_stream_filename = os.path.join(user_stream_dir, node + '.md')
         try:
@@ -359,7 +359,7 @@ def log_tweet(tweet, node):
             L.error("Couldn't log full tweet to note.")
             return
     else:
-        L.info(f"User {user} has NOT opted in, skipping logging full tweet.")
+        L.info(f"User {tweet.user.screen_name} has NOT opted in, skipping logging full tweet.")
 
 def is_mentioned_in(user, node):
     if not args.output_dir:
@@ -454,7 +454,7 @@ def wants_hashtags(user):
 
 def wants_writes(user):
     # Allowlist to begin with.
-    WANTS_WRITES = []
+    WANTS_WRITES = ['flancian']
 
     # Trying to infer opt in status from the Agora: does the node 'optin' contain mention of the user opting in?
     return user in WANTS_WRITES or (

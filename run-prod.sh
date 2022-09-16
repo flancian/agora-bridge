@@ -14,4 +14,6 @@
 # limitations under the License.
 
 echo "If this doesn't work, install poetry and run 'poetry install' as per README.md first."
+# This shouldn't be needed but it is when running as a systemd service for some reason.
+source $HOME/.poetry/env
 poetry run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --reset True

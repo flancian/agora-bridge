@@ -328,20 +328,6 @@ def log_tweet(tweet, node):
         # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
         node = os.path.split(node)[-1]
 
-    # try to write the full tweet if the user is known to have opted in (in the user's stream).
-    if wants_writes(tweet.user.screen_name):
-        L.info(f"User {tweet.user.screen_name} has opted in, logging full tweet to user stream.")
-        user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
-        user_stream_filename = os.path.join(user_stream_dir, node + '.md')
-        try:
-            with open(user_stream_filename, 'a') as note:
-                note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n  - {tweet.full_text}")
-        except:
-            L.error("Couldn't log full tweet to note.")
-            return
-    else:
-        L.info(f"User {tweet.user.screen_name} has NOT opted in, skipping logging full tweet.")
-
     # dedup logic. we use the agora bot's stream as log as that's data under the control of the Agora (we only store a link).
     try:
         agora_stream_dir = mkdir(os.path.join(args.output_dir, BOT_USERNAME + '@twitter.com'))
@@ -360,8 +346,23 @@ def log_tweet(tweet, node):
         with open(agora_stream_filename, 'a') as note:
             note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n")
     except: 
-        L.error("Couldn't log tweet to note.")
+        L.error("Couldn't log tweet to note in bot stream.")
         return
+
+    # try to write the full tweet if the user is known to have opted in (in the user's stream).
+    if wants_writes(tweet.user.screen_name):
+        L.info(f"User {tweet.user.screen_name} has opted in, logging full tweet to user stream.")
+        user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
+        user_stream_filename = os.path.join(user_stream_dir, node + '.md')
+        try:
+            with open(user_stream_filename, 'a') as note:
+                note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n  - {tweet.full_text}")
+        except:
+            L.error("Couldn't log full tweet to note in user stream.")
+            return
+    else:
+        L.info(f"User {tweet.user.screen_name} has NOT opted in, skipping logging full tweet.")
+
 
 def is_mentioned_in(user, node):
     if not args.output_dir:

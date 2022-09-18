@@ -421,7 +421,7 @@ def reply_to_tweet(api, reply, tweet):
             # update a global and dump to disk -- really need to refactor this into a Bot class shared with Mastodon.
             # TODO: refactor. This is really needed -- will add a pointer to this in the Agora.
             L.debug(tweet.id, res)
-            self.tweets
+            # self.tweets...
             TWEETS[tweet_to_url(tweet)] = tweet_to_url(res)
             # This actually writes to disk; this code is pretty bad, "update a global and then call write", what!
             # ...and this is the second time I think exactly that while dumpster diving here :)
@@ -627,6 +627,7 @@ def follow_followers(api):
                 L.error(f"# Error, perhaps due to Twitter follower list inconsistencies.")
 
 def process_mentions(api, since_id):
+    global BACKOFF
     # from https://realpython.com/twitter-bot-python-tweepy/
     L.info("# Retrieving mentions")
     new_since_id = since_id
@@ -643,6 +644,7 @@ def process_mentions(api, since_id):
     except Exception as e:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
         L.exception(f'# Twitter gave up on us while processing mentions, {e}.')
+        BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
         mentions = []
     # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
     try:
@@ -651,6 +653,7 @@ def process_mentions(api, since_id):
     except Exception as e:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
         L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
+        BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
         timeline = []
 
     tweets = mentions + timeline
@@ -773,7 +776,7 @@ def main():
     # Set up Twitter API.
     # Global, again, is a smell, but yolo.
     BACKOFF = 15
-    BACKOFF_MAX = 60
+    BACKOFF_MAX = 600
     BOT_USER_ID = config['bot_user_id']
     BOT_USERNAME = config.get('bot_username', 'an_agora')
     CONSUMER_KEY = config['consumer_key']

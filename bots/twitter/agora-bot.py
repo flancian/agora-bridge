@@ -665,7 +665,7 @@ def process_mentions(api, since_id):
             continue
 
         if not tweet.user.following:
-            L.info(f'# Summoned by {tweet.user}, will follow back if not in dry run.', tweet.user) 
+            L.info(f'# Summoned by {tweet.user}, will follow back if not in dry run.') 
             if not args.dry_run:
                 tweet.user.follow()
         # Process commands, in order of priority

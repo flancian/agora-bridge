@@ -33,6 +33,7 @@ import pickle
 import random
 import re
 import requests
+import subprocess
 import time
 import tweepy
 import urllib

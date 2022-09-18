@@ -328,6 +328,20 @@ def log_tweet(tweet, node):
         # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
         node = os.path.split(node)[-1]
 
+    # try to write the full tweet if the user is known to have opted in (in the user's stream).
+    if wants_writes(tweet.user.screen_name):
+        L.info(f"User {tweet.user.screen_name} has opted in, logging full tweet to user stream.")
+        user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
+        user_stream_filename = os.path.join(user_stream_dir, node + '.md')
+        try:
+            with open(user_stream_filename, 'a') as note:
+                note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n  - {tweet.full_text}")
+        except:
+            L.error("Couldn't log full tweet to note.")
+            return
+    else:
+        L.info(f"User {tweet.user.screen_name} has NOT opted in, skipping logging full tweet.")
+
     # dedup logic. we use the agora bot's stream as log as that's data under the control of the Agora (we only store a link).
     try:
         agora_stream_dir = mkdir(os.path.join(args.output_dir, BOT_USERNAME + '@twitter.com'))
@@ -349,20 +363,6 @@ def log_tweet(tweet, node):
         L.error("Couldn't log tweet to note.")
         return
 
-    # try to write the full tweet if the user is known to have opted in (in the user's stream).
-    if wants_writes(tweet.user.screen_name):
-        L.info(f"User {tweet.user.screen_name} has opted in, logging full tweet to user stream.")
-        user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
-        user_stream_filename = os.path.join(user_stream_dir, node + '.md')
-        try:
-            with open(user_stream_filename, 'a') as note:
-                note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n  - {tweet.full_text}")
-        except:
-            L.error("Couldn't log full tweet to note.")
-            return
-    else:
-        L.info(f"User {tweet.user.screen_name} has NOT opted in, skipping logging full tweet.")
-
 def is_mentioned_in(user, node):
     if not args.output_dir:
         return False
@@ -371,7 +371,9 @@ def is_mentioned_in(user, node):
         # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
         node = os.path.split(node)[-1]
 
-    filename = os.path.join(args.output_dir, node + '.md')
+    agora_stream_dir = mkdir(os.path.join(args.output_dir, BOT_USERNAME + '@twitter.com'))
+    filename = os.path.join(agora_stream_dir, node + '.md')
+    L.info(f"Checking if {user} is mentioned in {node} meaning {filename}.")
 
     try:
         with open(filename, 'r') as note:
@@ -469,8 +471,13 @@ def wants_writes(user):
     WANTS_WRITES = ['flancian']
 
     # Trying to infer opt in status from the Agora: does the node 'optin' contain mention of the user opting in?
-    return user in WANTS_WRITES or (
-        is_mentioned_in(user, 'optin') and not is_mentioned_in(user, 'optout'))
+    if user in WANTS_WRITES:
+        return True
+    if is_mentioned_in(user, 'optin') and not is_mentioned_in(user, 'optout'):
+        return True
+    if is_mentioned_in(user, 'opt in') and not is_mentioned_in(user, 'opt out'):
+        return True
+    return False
 
 def handle_hashtag(api, tweet, match=None):
     L.info(f'-> Handling hashtag: {match.group(0)}')

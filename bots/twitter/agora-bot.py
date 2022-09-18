@@ -67,6 +67,7 @@ class readable_dir(argparse.Action):
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
+parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), default='friends.yaml', help='The path to a graph (friends) in a yaml file, can be non-existent; we\'ll write there if we can.')
 parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
@@ -385,12 +386,18 @@ def is_mentioned_in(user, node):
 
 def yaml_dump_tweets(tweets):
     with open(args.tweets.name, 'w') as out:
-        yaml.dump(TWEETS, out)
+        yaml.dump(tweets, out)
+
+def yaml_dump_friends(friends):
+    # This sounds worse than it is :)
+    with open(args.friends.name, 'w') as out:
+        yaml.dump(friends, out)
 
 def reply_to_tweet(api, reply, tweet):
     # Twitter deduplication only *mostly* works so we can't depend on it.
     # Alternatively it might be better to implement state/persistent cursors, but this is easier.
     # TODO: move all of these to a class so we don't have to keep passing 'api' around.
+    # See ample warnings below. Hopefully it's happening really soon (tm) ;)
     L.info("-> in reply_to_tweet")
     if already_replied(api, tweet):
         L.info("-> not replying due to dedup logic")
@@ -412,9 +419,13 @@ def reply_to_tweet(api, reply, tweet):
             )
         if res:
             # update a global and dump to disk -- really need to refactor this into a Bot class shared with Mastodon.
-            # TODO: refactor.
+            # TODO: refactor. This is really needed -- will add a pointer to this in the Agora.
             L.debug(tweet.id, res)
+            self.tweets
             TWEETS[tweet_to_url(tweet)] = tweet_to_url(res)
+            # This actually writes to disk; this code is pretty bad, "update a global and then call write", what!
+            # ...and this is the second time I think exactly that while dumpster diving here :)
+            # I keep treating this codebase as throwaway, I should refactor and integrate with 1. [[moa]] or 2. [[mastodon]] codebase no later than [[2022-10]].
             yaml_dump_tweets(TWEETS)
         return res
     except tweepy.error.TweepError as e:
@@ -494,6 +505,9 @@ def is_friend(api, user):
     if not followers:
         L.info('*** Could not friend check due likely to a quota issue, failing OPEN.')
         return True
+
+    L.info('*** Trying to save friends snapshot.')
+    yaml_dump_friends(followers)
 
     if any([u for u in followers if u.id == user.id]):
         L.info(f'## @{user.screen_name} is a friend.')
@@ -582,6 +596,7 @@ def get_followers(api):
         followers = list(tweepy.Cursor(api.followers).items())
     except tweepy.error.RateLimitError:
         # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+        # TODO: read from friends.yaml!
         followers = []
     L.info(f'*** followers: {followers}')
     return followers
@@ -589,7 +604,9 @@ def get_followers(api):
 def follow_followers(api):
     L.info("# Retrieving friends, followers")
     friends = get_friends(api)
+    # write here?
     followers = get_followers(api)
+    # write here?
     L.info(f"# friends: {friends}")
     L.info(f"# followers: {followers}")
 
@@ -620,34 +637,37 @@ def process_mentions(api, since_id):
     # explicit mentions
     try:
         # mentions = list(tweepy.Cursor(api.mentions_timeline, since_id=since_id, count=200, tweet_mode='extended').items())
-        mentions = list(tweepy.Cursor(api.mentions_timeline, count=200, tweet_mode='extended').items())
+        mentions = list(tweepy.Cursor(api.mentions_timeline, count=40, tweet_mode='extended').items())
         L.info(f'# Processing {len(mentions)} mentions.')
         # hack
     except Exception as e:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-        L.exception(f'# Twitter gave up on us, {e}.')
+        L.exception(f'# Twitter gave up on us while processing mentions, {e}.')
         mentions = []
     # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
     try:
-        timeline = list(tweepy.Cursor(api.home_timeline, count=200, tweet_mode='extended').items())
+        timeline = list(tweepy.Cursor(api.home_timeline, count=40, tweet_mode='extended').items())
         L.info(f'# Processing {len(timeline)} timeline tweets.')
     except Exception as e:
         # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-        L.exception(f'# Twitter gave up on us, {e}.')
+        L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
         timeline = []
 
     tweets = mentions + timeline
     L.info(f'# Processing {len(tweets)} tweets overall.')
+
+    oldies = 0
     for n, tweet in enumerate(tweets):
         L.debug(f'*' * 80)
-        L.info(f'# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}')
+        L.debug(f'# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}')
         if tweet.created_at < start_time:
-            L.info(f'-> tweet too old, beyond current threshold.')
+            oldies += 1
             continue
 
-        # if not tweet.user.following and not args.dry_run:
-        #    L.info(f'# Summoned by {{tweet.user}}, following {{tweet.user}} back', tweet.user)
-        #    tweet.user.follow()
+        if not tweet.user.following:
+            L.info(f'# Summoned by {tweet.user}, will follow back if not in dry run.', tweet.user) 
+            if not args.dry_run:
+                tweet.user.follow()
         # Process commands, in order of priority
         cmds = [
                 (HELP_RE, handle_help),
@@ -665,6 +685,8 @@ def process_mentions(api, since_id):
         L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
         L.debug(f'*' * 80)
         new_since_id = max(tweet.id, new_since_id)
+
+    L.info(f'-> {oldies} too old (beyond current threshold of {start_time}).')
     return new_since_id
 
 #class AgoraBot(tweepy.StreamListener):
@@ -741,8 +763,12 @@ def main():
     try:
         TWEETS = yaml.safe_load(args.tweets)
     except yaml.YAMLError as e:
-        L.exception('what')
+        L.exception("couldn't load tweets")
         TWEETS = {}
+    try:
+        FRIENDS = yaml.safe_load(args.friends)
+    except yaml.YAMLError as e:
+        L.exception("couldn't load friends")
 
     # Set up Twitter API.
     # Global, again, is a smell, but yolo.
@@ -766,13 +792,20 @@ def main():
 
     while True: 
         try: 
-            follow_followers(api)
             since_id = process_mentions(api, since_id)
         except tweepy.error.TweepError as e:
             L.info(e)
-            L.error("# Twitter api rate limit reached".format(e))
+            L.error("# Twitter api rate limit reached while trying to process incoming tweets.".format(e))
             BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
             L.info(f"# Backing off {BACKOFF} after exception.")
+        try: 
+            follow_followers(api)
+        except tweepy.error.TweepError as e:
+            L.info(e)
+            L.error("# Twitter api rate limit reached while trying to interact with friends.".format(e))
+            BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
+            L.info(f"# Backing off {BACKOFF} after exception.")
+
         L.info(f'# [[agora bot]] waiting for {BACKOFF}.')
         time.sleep(BACKOFF)
 

@@ -269,7 +269,7 @@ class AgoraBot():
                 if not hasattr(reply, 'in_reply_to_status_id_str'):
                     continue
                 if reply.in_reply_to_status_id == tweet_id:
-                    L.debug("reply of tweet: {}".format(reply.full_text))
+                    L.debug("reply of tweet: {}".format(reply['text']))
                     L.debug("what do now? :)")
 
             except tweepy.RateLimitError as err:
@@ -336,14 +336,14 @@ class AgoraBot():
             n = len(bot_replies)
             bot_replies_text = [reply['text'] for reply in bot_replies]
             L.debug(f"## \n## already_replied() -> bot already replied {n} time(s).")
-            L.debug(f"## {tweet.full_text} bot_replies: {bot_replies_text}:")
+            L.debug(f"## {tweet['text']} bot_replies: {bot_replies_text}:")
             return True
 
         L.info(f"## already_replied() -> reply pending")
         return False
 
     def tweet_to_url(self, tweet):
-        return f'https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}'
+        return f"https://twitter.com/{tweet['user']}/status/{tweet['id']}"
 
     def log_tweet(self, tweet, node):
         if not args.output_dir:
@@ -369,24 +369,24 @@ class AgoraBot():
         # try to append the link to the tweet in the relevant node (in agora bot stream).
         try:
             with open(agora_stream_filename, 'a') as note:
-                note.write(f"- [[{tweet.user.screen_name}]] {self.tweet_to_url(tweet)}\n")
+                note.write(f"- [[{tweet['user']}]] {self.tweet_to_url(tweet)}\n")
         except: 
             L.error("Couldn't log tweet to note in bot stream.")
             return
 
         # try to write the full tweet if the user is known to have opted in (in the user's stream).
-        if self.wants_writes(tweet.user.screen_name):
-            L.info(f"User {tweet.user.screen_name} has opted in, logging full tweet to user stream.")
-            user_stream_dir = mkdir(os.path.join(args.output_dir, tweet.user.screen_name + '@twitter.com'))
+        if self.wants_writes(tweet['user']):
+            L.info(f"User {tweet['user']} has opted in, logging full tweet to user stream.")
+            user_stream_dir = mkdir(os.path.join(args.output_dir, tweet['user'] + '@twitter.com'))
             user_stream_filename = os.path.join(user_stream_dir, node + '.md')
             try:
                 with open(user_stream_filename, 'a') as note:
-                    note.write(f"- [[{tweet.user.screen_name}]] {self.tweet_to_url(tweet)}\n  - {tweet.full_text}")
+                    note.write(f"- [[{tweet['user']}]] {self.tweet_to_url(tweet)}\n  - {tweet['text']}")
             except:
                 L.error("Couldn't log full tweet to note in user stream.")
                 return
         else:
-            L.info(f"User {tweet.user.screen_name} has NOT opted in, skipping logging full tweet.")
+            L.info(f"User {tweet['user']} has NOT opted in, skipping logging full tweet.")
 
 
     def is_mentioned_in(self, user, node):
@@ -400,14 +400,15 @@ class AgoraBot():
         agora_stream_dir = mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
         filename = os.path.join(agora_stream_dir, node + '.md')
         L.info(f"Checking if {user} is mentioned in {node} meaning {filename}.")
+        username = user['username']
 
         try:
             with open(filename, 'r') as note:
-                if f'[[{user}]]' in note.read():
-                    L.info(f"User {user} is mentioned in {node}.")
+                if f'[[{username}]]' in note.read():
+                    L.info(f"User {username} is mentioned in {node}.")
                     return True
                 else:
-                    L.info(f"User {user} not mentioned in {node}.")
+                    L.info(f"User {username} not mentioned in {node}.")
                     return False
         except FileNotFoundError:
             return False
@@ -431,9 +432,9 @@ class AgoraBot():
             L.info("-> not replying due to dedup logic")
             return False
 
-        if not self.is_friend(tweet.user):
-            L.info("-> not replying because this user no longer follows us.")
-            return False
+        # if not self.is_friend(tweet['user']):
+        #     L.info("-> not replying because this user no longer follows us.")
+        #     return False
 
         if args.dry_run:
             L.info("-> not replying due to dry run")
@@ -463,12 +464,12 @@ class AgoraBot():
 
     def handle_wikilink(self, tweet, match=None):
         L.info(f'-> Handling wikilink: {match.group(0)}')
-        L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
-        wikilinks = WIKILINK_RE.findall(tweet.full_text)
+        L.debug(f"-> Handling tweet: {tweet['text']}, match: {match}")
+        wikilinks = WIKILINK_RE.findall(tweet['text'])
 
-        if tweet.retweeted:
-            L.info(f'# Skipping retweet: {tweet.id}')
-            return True
+        # if tweet.retweeted:
+        #     L.info(f'# Skipping retweet: {tweet.id}')
+        #     return True
 
         lines = []
         for wikilink in wikilinks:
@@ -477,20 +478,20 @@ class AgoraBot():
             self.log_tweet(tweet, wikilink)
 
         response = '\n'.join(lines)
-        L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
-        L.info(f'-> Considering reply to {tweet.id}')
+        L.debug(f"-> Replying '{response}' to tweet id {tweet['id']}")
+        L.info(f"-> Considering reply to {tweet['id']}")
 
         if self.reply_to_tweet(tweet, response):
-            L.info(f'# Replied to {tweet.id}')
+            L.info(f"# Replied to {tweet['id']}")
 
     def wants_hashtags(self, user):
         # Allowlist to begin with.
         WANTS_HASHTAGS = ['codexeditor', 'ChrisAldrich']
 
         # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
-        return user.screen_name in WANTS_HASHTAGS or (
-            self.is_mentioned_in(user.screen_name, 'hashtags') and not self.is_mentioned_in(user.screen_name, 'nohashtags')) or (
-            self.is_mentioned_in(user.screen_name, 'optin') and not self.is_mentioned_in(user.screen_name, 'optout'))
+        return user in WANTS_HASHTAGS or (
+            self.is_mentioned_in(user, 'hashtags') and not self.is_mentioned_in(user, 'nohashtags')) or (
+            self.is_mentioned_in(user, 'optin') and not self.is_mentioned_in(user, 'optout'))
 
     def wants_writes(self, user):
         # Allowlist to begin with.
@@ -507,14 +508,14 @@ class AgoraBot():
 
     def handle_hashtag(self, tweet, match=None):
         L.info(f'-> Handling hashtag: {match.group(0)}')
-        L.debug(f'-> Handling tweet: {tweet.full_text}, match: {match}')
-        hashtags = HASHTAG_RE.findall(tweet.full_text)
+        L.debug(f"-> Handling tweet: {tweet['text']}, match: {match}")
+        hashtags = HASHTAG_RE.findall(tweet['text'])
         # hashtag handling was disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
         # now we support basic opt in, as of 2022-05-21 this is off by default.
-        if not self.wants_hashtags(tweet.user):
-            L.info(f'# User has not opted into hashtag handling yet: {tweet.user.screen_name}')
+        if not self.wants_hashtags(tweet['user']):
+            L.info(f"# User has not opted into hashtag handling yet: {tweet['user']}")
             return False
-        L.info(f'# Handling hashtags for opted-in user {tweet.user.screen_name}')
+        L.info(f"# Handling hashtags for opted-in user {tweet['user']}")
 
         # unsure if we really want to skip this, in particular now that we're doing allowlisting?
         # if tweet.retweeted:
@@ -542,11 +543,11 @@ class AgoraBot():
         L.info('*** Trying to save friends snapshot.')
         self.yaml_dump_friends(followers)
 
-        if any([u for u in followers if u.id == user.id]):
-            L.info(f'## @{user.screen_name} is a friend.')
+        if any([u for u in followers if u['id'] == user['id']]):
+            L.info(f'## @{user} is a friend.')
             return True
 
-        L.info(f'## @{user.screen_name} is not yet a friend.')
+        L.info(f'## @{user} is not yet a friend.')
         return False
 
     def handle_push(self, tweet, match=None):
@@ -556,17 +557,17 @@ class AgoraBot():
 
         # Retweet if coming from a friend.
         # This should probably be closed down to 'is thought to be an [[agoran]]'.
-        if not self.is_friend(tweet.user):
+        if not self.is_friend(tweet['author_id']):
             L.info(f'## Not retweeting: not a known friend.')
             return
         L.debug(f'## Retweeting: from a friend.')
 
         if args.dry_run:
-            L.info(f'## Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
+            L.info(f"## Retweeting friend: {tweet['text']} by @{tweet['user']}.")
             L.info(f'## Skipping retweet due to dry run.')
             return False
         else:
-            L.info(f'## Retweeting friend: {tweet.full_text} by @{tweet.user.screen_name}.')
+            L.info(f"## Retweeting friend: {tweet['text']} by @{tweet['user']}.")
             try:
                 self.api.retweet(tweet.id)
                 return True
@@ -622,6 +623,10 @@ class AgoraBot():
             return resp.json()['data']
         except json.decoder.JSONDecodeError:
             L.error(f"*** Couldn't decode JSON message.")
+            L.error(resp.text)
+            return None
+        except KeyError:
+            L.error(f"*** No data found.")
             L.error(resp.text)
             return None
 
@@ -693,6 +698,7 @@ class AgoraBot():
 
     def follow(self, user_id):
         return self.api.create_friendship(user_id=user_id)
+        # For now Twitter is being really tight about following users.
         # api v2 requires an oauth2 setup for this we don't currently support:
         # {'title': 'Unsupported Authentication', 'detail': 'Authenticating with OAuth 2.0 Application-Only is forbidden for this endpoint.  Supported authentication types are [OAuth 1.0a User Context, OAuth 2.0 User Context].', 'type': 'https://api.twitter.com/2/problems/unsupported-authentication', 'status': 403}
         # uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following'
@@ -700,6 +706,13 @@ class AgoraBot():
         #     'target_user_id': user_id
         # }
         # return self.api_post(uri, params)
+
+    def get_user(self, user_id):
+        uri = f'https://api.twitter.com/2/users/{user_id}'
+        params = {
+            'user.fields': 'username'
+        }
+        return self.api_get(uri, params)
 
     def follow_followers(self):
         L.info("# Following back followers.")
@@ -722,7 +735,10 @@ class AgoraBot():
         if args.new_api:
             uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/mentions'
             params = {
-                'max_results': 1000
+                'max_results': 100,
+                'expansions': 'author_id',
+                'tweet.fields': 'author_id,created_at',
+                'user.fields': 'username',
             }
             mentions = self.api_get(uri, params) or []
         else:
@@ -733,7 +749,10 @@ class AgoraBot():
         if args.new_api:
             uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/timelines/reverse_chronological'
             params = {
-                'max_results': 1000
+                'max_results': 100,
+                'expansions': 'author_id',
+                'tweet.fields': 'author_id,created_at',
+                'user.fields': 'username',
             }
             timeline = self.api_get(uri, params) or []
         else:
@@ -775,15 +794,13 @@ class AgoraBot():
         oldies = 0
         for n, tweet in enumerate(tweets):
             L.debug(f'*' * 80)
-            L.debug(f'# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}')
-            if tweet.created_at < start_time:
-                oldies += 1
-                continue
+            tweet['user'] = self.get_user(tweet['author_id'])
+            L.debug(f"# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet['user']}/status/{tweet['id']}")
 
-            if not tweet.user.following:
-                L.info(f'# Summoned by {tweet.user.screen_name} who doesn\'t follow us yet.') 
-                # if not args.dry_run:
-                #    tweet.user.follow()
+            # if tweet['created_at'] < start_time:
+            #     oldies += 1
+            #     continue
+
             # Process commands, in order of priority
             cmds = [
                     (HELP_RE, self.handle_help),
@@ -795,14 +812,14 @@ class AgoraBot():
                     (DEFAULT_RE, self.handle_default),
                     ]
             for regexp, handler in cmds:
-                match = regexp.search(tweet.full_text.lower())
+                match = regexp.search(tweet['text'].lower())
                 if match:
                     handler(tweet, match)
-            L.debug(f'# Processed tweet: {tweet.id, tweet.full_text}')
+            L.debug(f'# Processed tweet: {tweet["id"], tweet["text"]}')
             L.debug(f'*' * 80)
-            new_since_id = max(tweet.id, new_since_id)
+            new_since_id = max(int(tweet['id']), new_since_id)
 
-        L.info(f'-> {oldies} too old (beyond current threshold of {start_time}).')
+        # L.info(f'-> {oldies} too old (beyond current threshold of {start_time}).')
         return new_since_id
 
     def sleep(self):

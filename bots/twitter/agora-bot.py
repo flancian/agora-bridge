@@ -714,9 +714,9 @@ class AgoraBot():
                 continue
 
             if not tweet.user.following:
-                L.info(f'# Summoned by {tweet.user}, will follow back if not in dry run.') 
-                if not args.dry_run:
-                    tweet.user.follow()
+                L.info(f'# Summoned by {tweet.user.screen_name} who doesn\'t follow us yet.') 
+                # if not args.dry_run:
+                #    tweet.user.follow()
             # Process commands, in order of priority
             cmds = [
                     (HELP_RE, self.handle_help),

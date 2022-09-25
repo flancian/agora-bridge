@@ -355,7 +355,7 @@ class AgoraBot():
             agora_stream_filename = os.path.join(agora_stream_dir, node + '.md')
 
             with open(agora_stream_filename, 'r') as note:
-                if tweet_to_url(tweet) in note.read():
+                if self.tweet_to_url(tweet) in note.read():
                     L.info("Tweet already logged to note, skipping logging.")
                     return False
         except FileNotFoundError:
@@ -365,7 +365,7 @@ class AgoraBot():
         # try to append the link to the tweet in the relevant node (in agora bot stream).
         try:
             with open(agora_stream_filename, 'a') as note:
-                note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n")
+                note.write(f"- [[{tweet.user.screen_name}]] {self.tweet_to_url(tweet)}\n")
         except: 
             L.error("Couldn't log tweet to note in bot stream.")
             return
@@ -377,7 +377,7 @@ class AgoraBot():
             user_stream_filename = os.path.join(user_stream_dir, node + '.md')
             try:
                 with open(user_stream_filename, 'a') as note:
-                    note.write(f"- [[{tweet.user.screen_name}]] {tweet_to_url(tweet)}\n  - {tweet.full_text}")
+                    note.write(f"- [[{tweet.user.screen_name}]] {self.tweet_to_url(tweet)}\n  - {tweet.full_text}")
             except:
                 L.error("Couldn't log full tweet to note in user stream.")
                 return
@@ -470,13 +470,13 @@ class AgoraBot():
         for wikilink in wikilinks:
             path = urllib.parse.quote_plus(wikilink)
             lines.append(f'https://anagora.org/{path}')
-            log_tweet(tweet, wikilink)
+            self.log_tweet(tweet, wikilink)
 
         response = '\n'.join(lines)
         L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
         L.info(f'-> Considering reply to {tweet.id}')
 
-        if reply_to_tweet(tweet, response):
+        if self.reply_to_tweet(tweet, response):
             L.info(f'# Replied to {tweet.id}')
 
     def wants_hashtags(self, user):
@@ -485,8 +485,8 @@ class AgoraBot():
 
         # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
         return user.screen_name in WANTS_HASHTAGS or (
-            is_mentioned_in(user.screen_name, 'hashtags') and not is_mentioned_in(user.screen_name, 'nohashtags')) or (
-            is_mentioned_in(user.screen_name, 'optin') and not is_mentioned_in(user.screen_name, 'optout'))
+            self.is_mentioned_in(user.screen_name, 'hashtags') and not self.is_mentioned_in(user.screen_name, 'nohashtags')) or (
+            self.is_mentioned_in(user.screen_name, 'optin') and not self.is_mentioned_in(user.screen_name, 'optout'))
 
     def wants_writes(self, user):
         # Allowlist to begin with.
@@ -495,9 +495,9 @@ class AgoraBot():
         # Trying to infer opt in status from the Agora: does the node 'optin' contain mention of the user opting in?
         if user in WANTS_WRITES:
             return True
-        if is_mentioned_in(user, 'optin') and not is_mentioned_in(user, 'optout'):
+        if self.is_mentioned_in(user, 'optin') and not self.is_mentioned_in(user, 'optout'):
             return True
-        if is_mentioned_in(user, 'opt in') and not is_mentioned_in(user, 'opt out'):
+        if self.is_mentioned_in(user, 'opt in') and not self.is_mentioned_in(user, 'opt out'):
             return True
         return False
 
@@ -507,7 +507,7 @@ class AgoraBot():
         hashtags = HASHTAG_RE.findall(tweet.full_text)
         # hashtag handling was disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
         # now we support basic opt in, as of 2022-05-21 this is off by default.
-        if not wants_hashtags(tweet.user):
+        if not self.wants_hashtags(tweet.user):
             L.info(f'# User has not opted into hashtag handling yet: {tweet.user.screen_name}')
             return False
         L.info(f'# Handling hashtags for opted-in user {tweet.user.screen_name}')
@@ -521,12 +521,12 @@ class AgoraBot():
         for hashtag in hashtags:
             path = urllib.parse.quote_plus(hashtag)
             lines.append(f'https://anagora.org/{path}')
-            log_tweet(tweet, hashtag)
+            self.log_tweet(tweet, hashtag)
 
         response = '\n'.join(lines)
         L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
         L.info(f'-> Considering reply to {tweet.id}')
-        if reply_to_tweet(tweet, response):
+        if self.reply_to_tweet(tweet, response):
             L.info(f'# Replied to {tweet.id}')
 
     def is_friend(self, user):
@@ -547,7 +547,7 @@ class AgoraBot():
 
     def handle_push(self, tweet, match=None):
         L.info(f'# Handling [[push]]: {match.group(0)}')
-        log_tweet(tweet, 'push')
+        self.log_tweet(tweet, 'push')
         self.reply_to_tweet(tweet, 'If you ask an Agora to push and you are a friend, the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend')
 
         # Retweet if coming from a friend.

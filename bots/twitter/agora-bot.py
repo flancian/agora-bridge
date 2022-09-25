@@ -446,7 +446,7 @@ class AgoraBot():
                 # TODO: refactor. This is really needed -- will add a pointer to this in the Agora.
                 L.debug(tweet.id, res)
                 # self.tweets...
-                self.tweets[tweet_to_url(tweet)] = tweet_to_url(res)
+                self.tweets[self.tweet_to_url(tweet)] = self.tweet_to_url(res)
                 # This actually writes to disk; this code is pretty bad, "update a global and then call write", what!
                 # ...and this is the second time I think exactly that while dumpster diving here :)
                 # I keep treating this codebase as throwaway, I should refactor and integrate with 1. [[moa]] or 2. [[mastodon]] codebase no later than [[2022-10]].

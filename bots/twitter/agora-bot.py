@@ -70,9 +70,12 @@ class readable_dir(argparse.Action):
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), default='tweets.yaml', help='The path to a state (tweets/replies) yaml file, can be non-existent; we\'ll write there.')
+# 2022-09-25: this might not actually be a good idea :) better to use sqlite3 and cut it with the yaml? we have Markdown writing for humans.
+# TODO: add sqlite.
 parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), default='friends.yaml', help='The path to a graph (friends) in a yaml file, can be non-existent; we\'ll write there if we can.')
 parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
+parser.add_argument('--new-api', dest='new_api', type=bool, default=False, help='Whether to prefer new/experimental APIs.')
 parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
@@ -609,24 +612,32 @@ class AgoraBot():
 
     @cachetools.func.ttl_cache(ttl=600)
     def get_friends(self):
-        L.info('*** get friends refreshing')
-        try:
-            friends = list(tweepy.Cursor(self.api.friends).items())
-        except tweepy.error.RateLimitError:
-            # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
-            friends = []
-        L.info(f'*** friends: {friends}')
+        friends = []
+        if args.new_api:
+            pass
+        else:
+            L.info('*** get friends refreshing')
+            try:
+                friends = list(tweepy.Cursor(self.api.friends).items())
+            except tweepy.error.RateLimitError:
+                # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+                pass
+            L.info(f'*** friends: {friends}')
         return friends
 
     @cachetools.func.ttl_cache(ttl=600)
     def get_followers(self):
         L.info('*** get followers refreshing')
-        try:
-            followers = list(tweepy.Cursor(self.api.followers).items())
-        except tweepy.error.RateLimitError:
-            # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
-            # TODO: read from friends.yaml!
-            followers = []
+        followers = []
+        if args.new_api:
+            pass
+        else:
+            try:
+                followers = list(tweepy.Cursor(self.api.followers).items())
+            except tweepy.error.RateLimitError:
+                # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+                # TODO: read from friends.yaml!
+                pass
         L.info(f'*** followers: {followers}')
         return followers
 
@@ -655,6 +666,13 @@ class AgoraBot():
                 except tweepy.error.TweepError:
                     L.error(f"# Error, perhaps due to Twitter follower list inconsistencies.")
 
+    def get_mentions(self):
+        if args.new_api:
+            pass
+        else:
+            mentions = list(tweepy.Cursor(self.api.mentions_timeline, count=40, tweet_mode='extended').items())
+        return mentions
+
     def process_mentions(self):
         global BACKOFF
         # from https://realpython.com/twitter-bot-python-tweepy/
@@ -666,7 +684,7 @@ class AgoraBot():
         start_time = datetime.datetime.now () - datetime.timedelta(minutes=args.max_age)
         # explicit mentions
         try:
-            mentions = list(tweepy.Cursor(self.api.mentions_timeline, count=40, tweet_mode='extended').items())
+            mentions = self.get_mentions()
             L.info(f'# Processing {len(mentions)} mentions.')
             # hack
         except Exception as e:

@@ -408,11 +408,11 @@ class AgoraBot():
         except FileNotFoundError:
             return False
 
-    def yaml_dump_tweets(tweets):
+    def yaml_dump_tweets(self, tweets):
         with open(args.tweets.name, 'w') as out:
             yaml.dump(tweets, out)
 
-    def yaml_dump_friends(friends):
+    def yaml_dump_friends(self, friends):
         # This sounds worse than it is :)
         with open(args.friends.name, 'w') as out:
             yaml.dump(friends, out)
@@ -450,7 +450,7 @@ class AgoraBot():
                 # This actually writes to disk; this code is pretty bad, "update a global and then call write", what!
                 # ...and this is the second time I think exactly that while dumpster diving here :)
                 # I keep treating this codebase as throwaway, I should refactor and integrate with 1. [[moa]] or 2. [[mastodon]] codebase no later than [[2022-10]].
-                yaml_dump_tweets(self.tweets)
+                self.yaml_dump_tweets(self.tweets)
             return res
         except tweepy.error.TweepError as e:
             # triggered by duplicates, for example.

@@ -259,6 +259,7 @@ class AgoraBot():
         return replies
 
     def get_replies(self, tweet, upto=100):
+        # Dead code as of earlier than [[2022-09-25]]
         # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
         # but I hope this won't be needed?
         replies = tweepy.Cursor(self.api.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
@@ -612,10 +613,33 @@ class AgoraBot():
         # TODO: do keywords search?
         # self.reply_to_tweet(tweet, 'Would you like help?')
     
-    def call(self, uri, params=None):
+    def api_get(self, uri, params=None):
         """Generic wrapper for calling the Twitter API with a fully determined URI (no params)."""
         bearer_header = self.get_bearer_header()
         resp = requests.get(uri, headers=bearer_header, params=params)
+        try:
+            # hmm.
+            return resp.json()['data']
+        except json.decoder.JSONDecodeError:
+            L.error(f"*** Couldn't decode JSON message.")
+            L.error(resp.text)
+            return None
+
+    def api_post(self, uri, params=None):
+        """Generic wrapper for calling the Twitter API with a fully determined URI (no params)."""
+        bearer_header = self.get_bearer_header()
+        resp = requests.post(uri, headers=bearer_header, params=params)
+        try:
+            return resp.json()
+        except json.decoder.JSONDecodeError:
+            L.error(f"*** Couldn't decode JSON message.")
+            L.error(resp.text)
+            return None
+
+    def api_delete(self, uri, params=None):
+        """Generic wrapper for calling the Twitter API with a fully determined URI (no params)."""
+        bearer_header = self.get_bearer_header()
+        resp = requests.delete(uri, headers=bearer_header, params=params)
         try:
             return resp.json()
         except json.decoder.JSONDecodeError:
@@ -627,11 +651,11 @@ class AgoraBot():
     def get_friends(self):
         friends = []
         if args.new_api:
-            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/followers'
+            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following'
             params = {
                 'max_results': 1000
             }
-            friends = self.call(uri, params) or []
+            friends = self.api_get(uri, params) or []
         else:
             L.info('*** get friends refreshing')
             try:
@@ -639,7 +663,7 @@ class AgoraBot():
             except tweepy.error.RateLimitError:
                 # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
                 pass
-            L.info(f'*** friends: {friends}')
+        L.debug(f'*** friends: {friends}')
         return friends
 
     @cachetools.func.ttl_cache(ttl=600)
@@ -647,7 +671,11 @@ class AgoraBot():
         L.info('*** get followers refreshing')
         followers = []
         if args.new_api:
-            pass
+            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/followers'
+            params = {
+                'max_results': 1000
+            }
+            followers = self.api_get(uri, params) or []
         else:
             try:
                 followers = list(tweepy.Cursor(self.api.followers).items())
@@ -658,37 +686,59 @@ class AgoraBot():
         L.info(f'*** followers: {followers}')
         return followers
 
+    def unfollow(self, user_id):
+        # uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following/{user_id}'
+        # return self.api_delete(uri)
+        return self.api.destroy_friendship(user_id=user_id)
+
+    def follow(self, user_id):
+        return self.api.create_friendship(user_id=user_id)
+        # api v2 requires an oauth2 setup for this we don't currently support:
+        # {'title': 'Unsupported Authentication', 'detail': 'Authenticating with OAuth 2.0 Application-Only is forbidden for this endpoint.  Supported authentication types are [OAuth 1.0a User Context, OAuth 2.0 User Context].', 'type': 'https://api.twitter.com/2/problems/unsupported-authentication', 'status': 403}
+        # uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following'
+        # params = {
+        #     'target_user_id': user_id
+        # }
+        # return self.api_post(uri, params)
+
     def follow_followers(self):
-        L.info("# Retrieving friends, followers")
-        friends = self.get_friends()
+        L.info("# Following back followers.")
+        friends = {friend['id'] for friend in self.get_friends()}
         # write here?
-        followers = self.get_followers()
+        followers = {follower['id'] for follower in self.get_followers()}
         # write here?
-        L.info(f"# friends: {friends}")
-        L.info(f"# followers: {followers}")
+        L.debug(f"# friends: {friends}")
+        L.debug(f"# followers: {followers}")
 
-        # if args.dry_run:
-        #     return False
-
-        for friend in friends:
-            if friend not in followers:
-                L.info(f"# Would unfollow {friend.name} as they don't follow us.")
-                # friend.unfollow()
+        for friend in friends - followers:
+            L.info(f"# Trying to unfollow {friend} as they don't follow us.")
+            self.unfollow(friend)
 
         for follower in followers:
-            if not follower.following:
-                L.info(f"# Trying to follow {follower.name} back")
-                try:
-                    follower.follow()
-                except tweepy.error.TweepError:
-                    L.error(f"# Error, perhaps due to Twitter follower list inconsistencies.")
+            L.info(f"# Trying to follow {follower} as they follow us.")
+            self.follow(follower)
 
     def get_mentions(self):
         if args.new_api:
-            pass
+            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/mentions'
+            params = {
+                'max_results': 1000
+            }
+            mentions = self.api_get(uri, params) or []
         else:
             mentions = list(tweepy.Cursor(self.api.mentions_timeline, count=40, tweet_mode='extended').items())
         return mentions
+
+    def get_timeline(self):
+        if args.new_api:
+            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/timelines/reverse_chronological'
+            params = {
+                'max_results': 1000
+            }
+            timeline = self.api_get(uri, params) or []
+        else:
+            timeline = list(tweepy.Cursor(self.api.home_timeline, count=40, tweet_mode='extended').items())
+        return timeline
 
     def process_mentions(self):
         global BACKOFF
@@ -711,7 +761,7 @@ class AgoraBot():
             mentions = []
         # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
         try:
-            timeline = list(tweepy.Cursor(self.api.home_timeline, count=40, tweet_mode='extended').items())
+            timeline = self.get_timeline()
             L.info(f'# Processing {len(timeline)} timeline tweets.')
         except Exception as e:
             # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
@@ -768,8 +818,8 @@ def main():
     bot = AgoraBot(config)
     L.info('[[agora bot]] starting.')
 
-    while True: 
-        try: 
+    while True:
+        try:
             bot.follow_followers()
         except tweepy.error.TweepError as e:
             L.info(e)

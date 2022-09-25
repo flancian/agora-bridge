@@ -75,7 +75,7 @@ parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), defa
 parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), default='friends.yaml', help='The path to a graph (friends) in a yaml file, can be non-existent; we\'ll write there if we can.')
 parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--new-api', dest='new_api', type=bool, default=False, help='Whether to prefer new/experimental APIs.')
+parser.add_argument('--new-api', dest='new_api', action="store_true", help='Whether to prefer new/experimental APIs.')
 parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()
@@ -606,21 +606,38 @@ class AgoraBot():
         self.reply_to_tweet(tweet, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', upto=2)
 
     def handle_default(self, tweet, match=None):
-        L.info(f'-> Handling default case, no clear intent present')
+        L.info(f'-> Handling as default case, no clear intent present.')
+        L.info(f'--> No action taken.')
         # perhaps hand back a link if we have a node that seems relevant?
+        # TODO: do keywords search?
         # self.reply_to_tweet(tweet, 'Would you like help?')
+    
+    def call(self, uri, params=None):
+        """Generic wrapper for calling the Twitter API with a fully determined URI (no params)."""
+        bearer_header = self.get_bearer_header()
+        resp = requests.get(uri, headers=bearer_header, params=params)
+        try:
+            return resp.json()
+        except json.decoder.JSONDecodeError:
+            L.error(f"*** Couldn't decode JSON message.")
+            L.error(resp.text)
+            return None
 
     @cachetools.func.ttl_cache(ttl=600)
     def get_friends(self):
         friends = []
         if args.new_api:
-            pass
+            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/followers'
+            params = {
+                'max_results': 1000
+            }
+            friends = self.call(uri, params) or []
         else:
             L.info('*** get friends refreshing')
             try:
                 friends = list(tweepy.Cursor(self.api.friends).items())
             except tweepy.error.RateLimitError:
-                # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+                # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
                 pass
             L.info(f'*** friends: {friends}')
         return friends
@@ -753,20 +770,19 @@ def main():
 
     while True: 
         try: 
-            since_id = bot.process_mentions()
-        except tweepy.error.TweepError as e:
-            L.info(e)
-            L.error("# Twitter api rate limit reached while trying to process incoming tweets.".format(e))
-            L.info(f"# Backing off {BACKOFF} after exception.")
-            bot.sleep()
-        try: 
             bot.follow_followers()
         except tweepy.error.TweepError as e:
             L.info(e)
             L.error("# Twitter api rate limit reached while trying to interact with friends.".format(e))
             L.info(f"# Backing off {BACKOFF} after exception.")
             bot.sleep()
-
+        try: 
+            bot.process_mentions()
+        except tweepy.error.TweepError as e:
+            L.info(e)
+            L.error("# Twitter api rate limit reached while trying to process incoming tweets.".format(e))
+            L.info(f"# Backing off {BACKOFF} after exception.")
+            bot.sleep()
         L.info(f'# [[agora bot]] waiting for {BACKOFF}.')
         bot.sleep()
 

@@ -343,11 +343,20 @@ class AgoraBot():
         return False
 
     def tweet_to_url(self, tweet):
-        return f"https://twitter.com/{tweet['user']}/status/{tweet['id']}"
+        # Somehow tweet here is still sometimes a Status as returned by Tweepy.
+        # TODO: Fix?
+        # TODO: check if Tweepy maybe updated and they support API v2? Sigh.
+        try:
+            return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
+        except AttributeError:
+            # yolo :)
+            return f"https://twitter.com/{tweet['user']}/status/{tweet['id']}"
 
     def log_tweet(self, tweet, node):
         if not args.output_dir:
             return False
+
+        username = tweet['user']['username']
 
         if ('/' in node):
             # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
@@ -369,27 +378,27 @@ class AgoraBot():
         # try to append the link to the tweet in the relevant node (in agora bot stream).
         try:
             with open(agora_stream_filename, 'a') as note:
-                note.write(f"- [[{tweet['user']}]] {self.tweet_to_url(tweet)}\n")
+                note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n")
         except: 
             L.error("Couldn't log tweet to note in bot stream.")
             return
 
         # try to write the full tweet if the user is known to have opted in (in the user's stream).
-        if self.wants_writes(tweet['user']):
-            L.info(f"User {tweet['user']} has opted in, logging full tweet to user stream.")
-            user_stream_dir = mkdir(os.path.join(args.output_dir, tweet['user'] + '@twitter.com'))
+        if self.wants_writes(username):
+            L.info(f"User {username} has opted in, logging full tweet to user stream.")
+            user_stream_dir = mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
             user_stream_filename = os.path.join(user_stream_dir, node + '.md')
             try:
                 with open(user_stream_filename, 'a') as note:
-                    note.write(f"- [[{tweet['user']}]] {self.tweet_to_url(tweet)}\n  - {tweet['text']}")
+                    note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n  - {tweet['text']}")
             except:
                 L.error("Couldn't log full tweet to note in user stream.")
                 return
         else:
-            L.info(f"User {tweet['user']} has NOT opted in, skipping logging full tweet.")
+            L.info(f"User {username} has NOT opted in, skipping logging full tweet.")
 
 
-    def is_mentioned_in(self, user, node):
+    def is_mentioned_in(self, username, node):
         if not args.output_dir:
             return False
 
@@ -399,8 +408,7 @@ class AgoraBot():
 
         agora_stream_dir = mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
         filename = os.path.join(agora_stream_dir, node + '.md')
-        L.info(f"Checking if {user} is mentioned in {node} meaning {filename}.")
-        username = user['username']
+        L.info(f"Checking if {username} is mentioned in {node} meaning {filename}.")
 
         try:
             with open(filename, 'r') as note:
@@ -697,6 +705,8 @@ class AgoraBot():
         return self.api.destroy_friendship(user_id=user_id)
 
     def follow(self, user_id):
+        return False
+        # Twitter seems to be failing this silently and punishing us for it?
         return self.api.create_friendship(user_id=user_id)
         # For now Twitter is being really tight about following users.
         # api v2 requires an oauth2 setup for this we don't currently support:

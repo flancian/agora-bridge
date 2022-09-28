@@ -76,6 +76,7 @@ parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), de
 parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--new-api', dest='new_api', action="store_true", help='Whether to prefer new/experimental APIs.')
+parser.add_argument('--follow', dest='follow', action="store_true", help='Whether to follow back (this burns Twitter API quota so it might be worth disabling at times).')
 parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 args = parser.parse_args()

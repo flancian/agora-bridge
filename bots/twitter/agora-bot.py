@@ -361,6 +361,27 @@ class AgoraBot():
                 # yolo :)
                 return f"https://twitter.com/{tweet['user']['username']}/status/{tweet['id']}"
 
+    def write_tweet(self, tweet, node):
+
+        L.debug(f"Maybe logging tweet if user has opted in.")
+        if not args.output_dir:
+            return False
+
+        username = tweet['user']['username']
+        user_stream_dir = mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
+        user_stream_filename = os.path.join(user_stream_dir, node + '.md')
+
+        if self.wants_writes(username):
+            L.info(f"User {username} has opted in to writing, pushing (publishing) full tweet text to an Agora.")
+            try:
+                with open(user_stream_filename, 'a') as note:
+                    # TODO: add timedate like Matrix, either move to Tweepy 4 to get some sense back or pipe through the creation date.
+                    note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n  - {tweet['text']}\n")
+            except:
+                L.error("Couldn't log full tweet to note in user stream.")
+                return
+        else:
+            L.info(f"User {username} has NOT opted in, skipping logging full tweet.")
 
     def log_tweet(self, tweet, node):
         if not args.output_dir:
@@ -393,20 +414,8 @@ class AgoraBot():
             L.error("Couldn't log tweet to note in bot stream.")
             return
 
-        # try to write the full tweet if the user is known to have opted in (in the user's stream).
-        if self.wants_writes(username):
-            L.info(f"User {username} has opted in, logging full tweet to user stream.")
-            user_stream_dir = mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
-            user_stream_filename = os.path.join(user_stream_dir, node + '.md')
-            try:
-                with open(user_stream_filename, 'a') as note:
-                    note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n  - {tweet['text']}")
-            except:
-                L.error("Couldn't log full tweet to note in user stream.")
-                return
-        else:
-            L.info(f"User {username} has NOT opted in, skipping logging full tweet.")
-
+        # maybe write full tweet text in the user's own directory/repository (checks for opt in)
+        self.write_tweet(tweet, node)
 
     def is_mentioned_in(self, username, node):
         if not args.output_dir:

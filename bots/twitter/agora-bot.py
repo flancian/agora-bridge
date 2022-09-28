@@ -134,14 +134,14 @@ class AgoraBot():
         """Gets the tweet and up to n ancestors in the thread, returns a list (path)."""
         # I'd like the whole thread, but the API seems to make it weirdly hard to get *children*? I must be doing something wrong.
         # TODO: implement.
-        path = [tweet.id]
+        path = [tweet['id']]
         while True:
             n-=1
             if n < 0:
                 break
             parent = tweet.in_reply_to_status_id or 0
             path.append(parent)
-            L.debug(f'{tweet.id} had parent {parent}')
+            L.debug(f'{tweet['id']} had parent {parent}')
             if parent == 0:
                 break
             # go up
@@ -185,7 +185,7 @@ class AgoraBot():
         uri = 'https://api.twitter.com/2/tweets?'
 
         params = {
-            'ids': tweet.id,
+            'ids': tweet['id'],
             'tweet.fields':'conversation_id'
         }
         
@@ -262,13 +262,13 @@ class AgoraBot():
         # Dead code as of earlier than [[2022-09-25]]
         # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
         # but I hope this won't be needed?
-        replies = tweepy.Cursor(self.api.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
+        replies = tweepy.Cursor(self.api.search, q='to:{}'.format(tweet['id']), since_id=tweet['id'], tweet_mode='extended').items()
         while True:
             try:
                 reply = replies.next()
                 if not hasattr(reply, 'in_reply_to_status_id_str'):
                     continue
-                if reply.in_reply_to_status_id == tweet_id:
+                if reply.in_reply_to_status_id == tweet['id']:
                     L.debug("reply of tweet: {}".format(reply['text']))
                     L.debug("what do now? :)")
 
@@ -443,13 +443,13 @@ class AgoraBot():
         try:
             res = self.api.update_status(
                 status=reply,
-                in_reply_to_status_id=tweet.id,
+                in_reply_to_status_id=tweet['id'],
                 auto_populate_reply_metadata=True
                 )
             if res:
                 # update a global and dump to disk -- really need to refactor this into a Bot class shared with Mastodon.
                 # TODO: refactor. This is really needed -- will add a pointer to this in the Agora.
-                L.debug(tweet.id, res)
+                L.debug(tweet['id'], res)
                 # self.tweets...
                 self.tweets[self.tweet_to_url(tweet)] = self.tweet_to_url(res)
                 # This actually writes to disk; this code is pretty bad, "update a global and then call write", what!
@@ -529,10 +529,10 @@ class AgoraBot():
             self.log_tweet(tweet, hashtag)
 
         response = '\n'.join(lines)
-        L.debug(f'-> Replying "{response}" to tweet id {tweet.id}')
-        L.info(f'-> Considering reply to {tweet.id}')
+        L.debug(f"-> Replying '{response}' to tweet id {tweet['id']}")
+        L.info(f"-> Considering reply to {tweet['id']}")
         if self.reply_to_tweet(tweet, response):
-            L.info(f'# Replied to {tweet.id}')
+            L.info(f"# Replied to {tweet['id']}")
 
     def is_friend(self, user):
         followers = self.get_followers()
@@ -569,7 +569,7 @@ class AgoraBot():
         else:
             L.info(f"## Retweeting friend: {tweet['text']} by @{tweet['user']}.")
             try:
-                self.api.retweet(tweet.id)
+                self.api.retweet(tweet['id'])
                 return True
             except tweepy.error.TweepError as e:
                 L.info(f'## Skipping duplicate retweet.')

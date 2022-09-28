@@ -141,7 +141,7 @@ class AgoraBot():
                 break
             parent = tweet.in_reply_to_status_id or 0
             path.append(parent)
-            L.debug(f'{tweet['id']} had parent {parent}')
+            L.debug(f"{tweet['id']} had parent {parent}")
             if parent == 0:
                 break
             # go up

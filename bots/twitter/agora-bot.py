@@ -717,9 +717,14 @@ class AgoraBot():
         return self.api.destroy_friendship(user_id=user_id)
 
     def follow(self, user_id):
-        return False
-        # Twitter seems to be failing this silently and punishing us for it?
-        return self.api.create_friendship(user_id=user_id)
+        # Twitter seems to sometimes be failing this silently sometimes and punishing us for it? Unsure.
+        # Maybe it's just that the API v2 code doesn't handle error conditions well yet :)
+        # TODO: try out [[tweepy 4]]!
+        if args.follow:
+            return self.api.create_friendship(user_id=user_id)
+        else:
+            L.info("Not following user as --follow was not specified.")
+            return False
         # For now Twitter is being really tight about following users.
         # api v2 requires an oauth2 setup for this we don't currently support:
         # {'title': 'Unsupported Authentication', 'detail': 'Authenticating with OAuth 2.0 Application-Only is forbidden for this endpoint.  Supported authentication types are [OAuth 1.0a User Context, OAuth 2.0 User Context].', 'type': 'https://api.twitter.com/2/problems/unsupported-authentication', 'status': 403}

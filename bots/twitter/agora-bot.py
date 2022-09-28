@@ -294,6 +294,7 @@ class AgoraBot():
         if self.tweet_to_url(tweet) in self.tweets.keys():
             L.info(f"-> tweet already in handled list.")
             return True
+        L.info(f"-> tweet not in handled list.")
         return False
 
         # dead code beyond here.
@@ -759,6 +760,7 @@ class AgoraBot():
                 'expansions': 'author_id',
                 'tweet.fields': 'author_id,created_at',
                 'user.fields': 'username',
+                'since_id': self.since_id,
             }
             mentions = self.api_get(uri, params) or []
         else:
@@ -773,6 +775,7 @@ class AgoraBot():
                 'expansions': 'author_id',
                 'tweet.fields': 'author_id,created_at',
                 'user.fields': 'username',
+                'since_id': self.since_id,
             }
             timeline = self.api_get(uri, params) or []
         else:
@@ -843,6 +846,7 @@ class AgoraBot():
         return new_since_id
 
     def sleep(self):
+        L.info(f"Sleeping for {BACKOFF} seconds.")
         time.sleep(BACKOFF)
 
 def main():

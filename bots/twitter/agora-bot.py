@@ -351,6 +351,14 @@ class AgoraBot():
         except AttributeError:
             # yolo :)
             return f"https://twitter.com/{tweet['user']['username']}/status/{tweet['id']}"
+        except NoneType:
+            self.sleep()
+            try:
+                return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
+            except AttributeError:
+                # yolo :)
+                return f"https://twitter.com/{tweet['user']['username']}/status/{tweet['id']}"
+
 
     def log_tweet(self, tweet, node):
         if not args.output_dir:

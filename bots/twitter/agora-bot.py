@@ -471,8 +471,8 @@ class AgoraBot():
             return False
 
     def handle_wikilink(self, tweet, match=None):
-        L.info(f'-> Handling wikilink: {match.group(0)}')
-        L.debug(f"-> Handling tweet: {tweet['text']}, match: {match}")
+        L.info(f"-> {self.tweet_to_url(tweet)}: Handling wikilinks, match: {match.group(0)}")
+        L.debug(f"...in {tweet['text']}")
         wikilinks = WIKILINK_RE.findall(tweet['text'])
 
         # if tweet.retweeted:
@@ -487,7 +487,6 @@ class AgoraBot():
 
         response = '\n'.join(lines)
         L.debug(f"-> Replying '{response}' to tweet id {tweet['id']}")
-        L.info(f"-> Considering reply to {tweet['id']}")
 
         if self.reply_to_tweet(tweet, response):
             L.info(f"# Replied to {tweet['id']}")
@@ -515,14 +514,15 @@ class AgoraBot():
         return False
 
     def handle_hashtag(self, tweet, match=None):
-        L.info(f'-> Handling hashtag: {match.group(0)}')
-        L.debug(f"-> Handling tweet: {tweet['text']}, match: {match}")
+        L.info(f"-> {self.tweet_to_url(tweet)}: Handling hashtags: {match.group(0)}")
+        L.debug(f"...in {tweet['text']}")
         hashtags = HASHTAG_RE.findall(tweet['text'])
         # hashtag handling was disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
         # now we support basic opt in, as of 2022-05-21 this is off by default.
         if not self.wants_hashtags(tweet['user']):
             L.info(f"# User has not opted into hashtag handling yet: {tweet['user']}")
             return False
+
         L.info(f"# Handling hashtags for opted-in user {tweet['user']}")
 
         # unsure if we really want to skip this, in particular now that we're doing allowlisting?
@@ -559,7 +559,7 @@ class AgoraBot():
         return False
 
     def handle_push(self, tweet, match=None):
-        L.info(f'# Handling [[push]]: {match.group(0)}')
+        L.info(f'# Handling push: {match.group(0)}')
         self.log_tweet(tweet, 'push')
         self.reply_to_tweet(tweet, 'If you ask an Agora to push and you are a friend, the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend')
 
@@ -609,15 +609,16 @@ class AgoraBot():
             return True
 
     def handle_help(self, tweet, match=None):
-        L.info(f'# Handling [[help]]: {tweet}, {match}')
+        L.info(f'# Handling [[help]]: {tweet}, {match.group(0)}')
         # This is probably borked -- reply_to_tweet now only replies once because of how we do deduping.
         # TODO: fix.
         self.log_tweet(tweet, 'help')
         self.reply_to_tweet(tweet, 'If you tell the Agora about a [[wikilink]], it will try to resolve it for you and mark your resource as relevant to the entity described between double square brackets. See https://anagora.org/agora-bot for more!', upto=2)
 
     def handle_default(self, tweet, match=None):
-        L.info(f'-> Handling as default case, no clear intent present.')
-        L.info(f'--> No action taken.')
+        L.info(f"-> {self.tweet_to_url(tweet)}: Handling as default case, no clear intent found.") 
+        L.debug(f"...in {tweet['text']}")
+        # L.info(f'--> No action taken.')
         # perhaps hand back a link if we have a node that seems relevant?
         # TODO: do keywords search?
         # self.reply_to_tweet(tweet, 'Would you like help?')
@@ -630,12 +631,13 @@ class AgoraBot():
             # hmm.
             return resp.json()['data']
         except json.decoder.JSONDecodeError:
-            L.error(f"*** Couldn't decode JSON message.")
+            L.error(f"*** Couldn't decode JSON message for call to {uri}.")
             L.error(resp.text)
             return None
         except KeyError:
-            L.error(f"*** No data found.")
+            L.error(f"*** No data found for call to {uri}, may be due to throttling.")
             L.error(resp.text)
+            self.sleep()
             return None
 
     def api_post(self, uri, params=None):
@@ -645,7 +647,7 @@ class AgoraBot():
         try:
             return resp.json()
         except json.decoder.JSONDecodeError:
-            L.error(f"*** Couldn't decode JSON message.")
+            L.error(f"*** Couldn't decode JSON message for call to {uri}.")
             L.error(resp.text)
             return None
 
@@ -656,7 +658,7 @@ class AgoraBot():
         try:
             return resp.json()
         except json.decoder.JSONDecodeError:
-            L.error(f"*** Couldn't decode JSON message.")
+            L.error(f"*** Couldn't decode JSON message for call to {uri}.")
             L.error(resp.text)
             return None
 
@@ -696,7 +698,7 @@ class AgoraBot():
                 # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
                 # TODO: read from friends.yaml!
                 pass
-        L.info(f'*** followers: {followers}')
+        L.debug(f'*** followers: {followers}')
         return followers
 
     def unfollow(self, user_id):
@@ -725,20 +727,20 @@ class AgoraBot():
         return self.api_get(uri, params)
 
     def follow_followers(self):
-        L.info("# Following back followers.")
+        L.info("# Trying to follow back only followers.")
         friends = {friend['id'] for friend in self.get_friends()}
-        # write here?
+        # write list here?
         followers = {follower['id'] for follower in self.get_followers()}
-        # write here?
+        # write list here?
         L.debug(f"# friends: {friends}")
         L.debug(f"# followers: {followers}")
 
         for friend in friends - followers:
-            L.info(f"# Trying to unfollow {friend} as they don't follow us.")
+            L.debug(f"# Trying to unfollow {friend} as they don't follow us.")
             self.unfollow(friend)
 
         for follower in followers:
-            L.info(f"# Trying to follow {follower} as they follow us.")
+            L.debug(f"# Trying to follow {follower} as they follow us.")
             self.follow(follower)
 
     def get_mentions(self):
@@ -769,6 +771,7 @@ class AgoraBot():
             timeline = list(tweepy.Cursor(self.api.home_timeline, count=40, tweet_mode='extended').items())
         return timeline
 
+    # TODO: probably refactor into process_mentions and process_timeline? unsure.
     def process_mentions(self):
         global BACKOFF
         # from https://realpython.com/twitter-bot-python-tweepy/
@@ -791,7 +794,7 @@ class AgoraBot():
         # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
         try:
             timeline = self.get_timeline()
-            L.info(f'# Processing {len(timeline)} timeline tweets.')
+            L.info(f'# Processing {len(timeline)} tweets from the timeline (potentially not mentioning us.')
         except Exception as e:
             # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
             L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
@@ -803,7 +806,7 @@ class AgoraBot():
 
         oldies = 0
         for n, tweet in enumerate(tweets):
-            L.debug(f'*' * 80)
+            L.info(f'-' * 80)
             tweet['user'] = self.get_user(tweet['author_id'])
             L.debug(f"# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet['user']}/status/{tweet['id']}")
 
@@ -826,7 +829,6 @@ class AgoraBot():
                 if match:
                     handler(tweet, match)
             L.debug(f'# Processed tweet: {tweet["id"], tweet["text"]}')
-            L.debug(f'*' * 80)
             new_since_id = max(int(tweet['id']), new_since_id)
 
         # L.info(f'-> {oldies} too old (beyond current threshold of {start_time}).')

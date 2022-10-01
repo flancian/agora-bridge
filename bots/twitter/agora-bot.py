@@ -373,7 +373,7 @@ class AgoraBot():
             try:
                 with open(user_stream_filename, 'a') as note:
                     # TODO: add timedate like Matrix, either move to Tweepy 4 to get some sense back or pipe through the creation date.
-                    note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n  - {tweet.text}\n")
+                    note.write(f"- [[{tweet.created_at}]] @[[{username}]]: {self.tweet_to_url(tweet)}\n\n{tweet.text}\n\n---\n\n")
             except:
                 L.error("Couldn't log full tweet to note in user stream.")
                 return
@@ -753,23 +753,24 @@ class AgoraBot():
             L.debug(f"# Trying to follow {follower} as they follow us.")
             self.follow(follower.id)
 
-    def get_mentions(self):
+    def get_mentions(self, start_time=None):
         mentions = tweepy.Paginator(
             self.client.get_users_mentions,
             id=self.bot_user_id,
             expansions='author_id',
             tweet_fields='author_id,created_at',
             user_fields='username',
-            since_id=self.since_id
+            start_time=start_time,
             ).flatten()
         return mentions
 
-    def get_timeline(self):
+    def get_timeline(self, start_time=None):
         timeline = tweepy.Paginator(
             self.client.get_home_timeline,
             expansions='author_id',
             tweet_fields='author_id,created_at',
             user_fields='username',
+            start_time=start_time,
             ).flatten()
         return timeline
 
@@ -785,7 +786,7 @@ class AgoraBot():
         start_time = datetime.datetime.now () - datetime.timedelta(minutes=args.max_age)
         # explicit mentions
         try:
-            mentions = list(self.get_mentions())
+            mentions = list(self.get_mentions(start_time=start_time))
             L.info(f'# Processing {len(mentions)} mentions.')
             # hack
         except Exception as e:
@@ -797,7 +798,7 @@ class AgoraBot():
         # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
         if args.timeline:
             try:
-                timeline = list(self.get_timeline())
+                timeline = list(self.get_timeline(start_time=start_time))
             except Exception as e:
                 # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
                 L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
@@ -828,12 +829,18 @@ class AgoraBot():
                     (OPT_OUT_RE, self.handle_opt_out),
                     (WIKILINK_RE, self.handle_wikilink),
                     (HASHTAG_RE, self.handle_hashtag),
-                    (DEFAULT_RE, self.handle_default),
                     ]
+            # For handling the default case, where no clear intent is present.
+            # TODO: for opted in users, auto wikilink anything the Agora has already linked ;)
+            # TODO: auto extract entities using NTLK / some other straightforward approach.
+            handled = False
             for regexp, handler in cmds:
                 match = regexp.search(tweet.text.lower())
                 if match:
                     handler(tweet, match)
+                    handled = True
+            if not handled:
+                self.handle_default(tweet)
             L.debug(f'# Processed tweet: {tweet.id, tweet.text}')
             new_since_id = max(int(tweet.id), new_since_id)
 

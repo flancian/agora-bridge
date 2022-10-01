@@ -4,4 +4,5 @@
 OUTPUT=/home/agora/agora/stream/
 mkdir -p ${OUTPUT}
 # 10080 = 7d in minutes
-poetry run ./agora-bot.py --config agora-bot.yaml --timeline --output-dir=${OUTPUT} --max-age=10080 $@ 
+# 40320 = 4w in minutes
+poetry run ./agora-bot.py --config agora-bot.yaml --timeline --output-dir=${OUTPUT} --max-age=40320 $@ 

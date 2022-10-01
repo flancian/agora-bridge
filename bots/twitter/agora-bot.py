@@ -41,9 +41,9 @@ import yaml
 
 # Bot logic globals.
 # Regexes are in order of precedence.
-OPT_IN_RE = re.compile(r'#(optin|agora)', re.IGNORECASE)
-OPT_OUT_RE = re.compile(r'#(optout|noagora)', re.IGNORECASE)
-PUSH_RE = re.compile(r'\[\[push\]\](\s(\S+))?', re.IGNORECASE)
+OPT_IN_RE = re.compile(r'#(optin|agora|push)|\[\[(optin|agora|push)\]\]', re.IGNORECASE)
+OPT_OUT_RE = re.compile(r'#(optout|noagora|nopush)|\[\[(optout|noagora|nopush)\]\]', re.IGNORECASE)
+PUSH_RE = re.compile(r'#push|\[\[push\]\]', re.IGNORECASE)
 HELP_RE = re.compile(r'\[\[help\]\]\s(\S+)', re.IGNORECASE)
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 HASHTAG_RE = re.compile(r'#(\w+)', re.IGNORECASE)
@@ -511,8 +511,12 @@ class AgoraBot():
 
         # Trying to infer opt in status from the Agora: does the node 'hashtags' contain mention of the user opting in?
         return user in WANTS_HASHTAGS or (
-            self.is_mentioned_in(user, 'hashtags') and not self.is_mentioned_in(user, 'nohashtags')) or (
-            self.is_mentioned_in(user, 'optin') and not self.is_mentioned_in(user, 'optout'))
+            self.is_mentioned_in(user, 'push') and not self.is_mentioned_in(user, 'nopush')
+            ) or (
+            self.is_mentioned_in(user, 'optin') and not self.is_mentioned_in(user, 'optout')
+            ) or (
+            self.is_mentioned_in(user, 'hashtags') and not self.is_mentioned_in(user, 'nohashtags')
+            )
 
     def wants_writes(self, user):
         # Allowlist to begin with.
@@ -520,6 +524,8 @@ class AgoraBot():
 
         # Trying to infer opt in status from the Agora: does the node 'optin' contain mention of the user opting in?
         if user in WANTS_WRITES:
+            return True
+        if self.is_mentioned_in(user, 'push') and not self.is_mentioned_in(user, 'nopush'):
             return True
         if self.is_mentioned_in(user, 'optin') and not self.is_mentioned_in(user, 'optout'):
             return True
@@ -576,13 +582,19 @@ class AgoraBot():
     def handle_push(self, tweet, match=None):
         L.info(f'# Handling push: {match.group(0)}')
         self.log_tweet(tweet, 'push')
-        self.reply_to_tweet(tweet, 'If you ask an Agora to push and you are a friend, the Agora will try to push for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/friend')
+        self.reply_to_tweet(tweet, 'If you ask an Agora to #push and you are a friend, the Agora will try to [[push]] for you.\n\nhttps://anagora.org/push\nhttps://anagora.org/opt-in\n\nPost #nopush to disable.')
 
         # Retweet if coming from a friend.
         # This should probably be closed down to 'is thought to be an [[agoran]]'.
         if not self.is_friend(tweet.author_id):
             L.info(f'## Not retweeting: not a known friend.')
-            return
+            return False
+
+        # leaving retweets disabled for now as they're a bit dangerous maybe, revisit :)
+        return False
+
+        # dead code follows   
+
         L.debug(f'## Retweeting: from a friend.')
 
         if args.dry_run:
@@ -704,18 +716,19 @@ class AgoraBot():
         L.debug(f'*** followers: {followers}')
         return followers
 
-    def unfollow(self, user_id):
+    def unfollow(self, user):
         # uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following/{user_id}'
         # return self.api_delete(uri)
-        return self.client.unfollow_user(user_id)
+        return self.client.unfollow_user(user.id)
 
-    def follow(self, user_id):
+    def follow(self, user):
         # Twitter seems to sometimes be failing this silently sometimes and punishing us for it? Unsure.
         # Maybe it's just that the API v2 code doesn't handle error conditions well yet :)
         if args.follow:
-            return self.client.follow_user(user_id)
+            L.info(f"Trying to follow user {user.username} as --follow was specified.")
+            return self.client.follow_user(user.id)
         else:
-            L.info("Not following user as --follow was not specified.")
+            L.info(f"Not following user {user.username} as --follow was not specified.")
             return False
         # For now Twitter is being really tight about following users.
         # api v2 requires an oauth2 setup for this we don't currently support:
@@ -744,16 +757,16 @@ class AgoraBot():
 
         for friend in friends - followers:
             L.debug(f"# Trying to unfollow {friend} as they don't follow us.")
-            self.unfollow(friend.id)
+            self.unfollow(friend)
 
         for follower in followers:
             if follower.protected:
                 # Trying to follow back protected users causes trouble, as Twitter doesn't like it when we try to follow a user more than once (and they take to approve follows, sometimes never do.)
                 pass
             L.debug(f"# Trying to follow {follower} as they follow us.")
-            self.follow(follower.id)
+            self.follow(follower)
 
-    def get_mentions(self, start_time=None):
+    def get_mentions(self, start_time=None, since_id=None):
         mentions = tweepy.Paginator(
             self.client.get_users_mentions,
             id=self.bot_user_id,
@@ -761,16 +774,18 @@ class AgoraBot():
             tweet_fields='author_id,created_at',
             user_fields='username',
             start_time=start_time,
+            since_id=since_id,
             ).flatten()
         return mentions
 
-    def get_timeline(self, start_time=None):
+    def get_timeline(self, start_time=None, since_id=None):
         timeline = tweepy.Paginator(
             self.client.get_home_timeline,
             expansions='author_id',
             tweet_fields='author_id,created_at',
             user_fields='username',
             start_time=start_time,
+            since_id=since_id,
             ).flatten()
         return timeline
 
@@ -786,7 +801,7 @@ class AgoraBot():
         start_time = datetime.datetime.now () - datetime.timedelta(minutes=args.max_age)
         # explicit mentions
         try:
-            mentions = list(self.get_mentions(start_time=start_time))
+            mentions = list(self.get_mentions(start_time=start_time, since_id=new_since_id))
             L.info(f'# Processing {len(mentions)} mentions.')
             # hack
         except Exception as e:
@@ -798,7 +813,7 @@ class AgoraBot():
         # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
         if args.timeline:
             try:
-                timeline = list(self.get_timeline(start_time=start_time))
+                timeline = list(self.get_timeline(start_time=start_time, since_id=new_since_id))
             except Exception as e:
                 # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
                 L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
@@ -824,7 +839,7 @@ class AgoraBot():
             # Process commands, in order of priority
             cmds = [
                     (HELP_RE, self.handle_help),
-                    #(PUSH_RE, handle_push),
+                    (PUSH_RE, self.handle_push),
                     (OPT_IN_RE, self.handle_opt_in),
                     (OPT_OUT_RE, self.handle_opt_out),
                     (WIKILINK_RE, self.handle_wikilink),
@@ -845,6 +860,7 @@ class AgoraBot():
             new_since_id = max(int(tweet.id), new_since_id)
 
         # L.info(f'-> {oldies} too old (beyond current threshold of {start_time}).')
+        self.since_id = new_since_id
         return new_since_id
 
     def sleep(self):

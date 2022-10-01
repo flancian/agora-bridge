@@ -438,13 +438,15 @@ class AgoraBot():
             return False
 
     def yaml_dump_tweets(self, tweets):
-        with open(args.tweets.name, 'w') as out:
-            yaml.dump(tweets, out)
+        if tweets:
+            with open(args.tweets.name, 'w') as out:
+                yaml.dump(tweets, out)
 
     def yaml_dump_friends(self, friends):
         # This sounds worse than it is :)
-        with open(args.friends.name, 'w') as out:
-            yaml.dump(friends, out)
+        if friends:
+            with open(args.friends.name, 'w') as out:
+                yaml.dump(friends, out)
 
     def reply_to_tweet(self, tweet, reply):
         # Twitter deduplication only *mostly* works so we can't depend on it.

@@ -406,7 +406,7 @@ class AgoraBot():
         # try to append the link to the tweet in the relevant node (in agora bot stream).
         try:
             with open(agora_stream_filename, 'a') as note:
-                note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n")
+                note.write(f"- [[{tweet.created_at}]] @[[{username}]]: {self.tweet_to_url(tweet)}\n")
         except: 
             L.error("Couldn't log tweet to note in bot stream.")
             return

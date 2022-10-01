@@ -279,7 +279,7 @@ class AgoraBot():
                 time.sleep(BACKOFF)
                 continue
 
-            except tweepy.TweepError as e:
+            except tweepy.errors.TweepyException as e:
                 L.error("Tweepy error occured:{}".format(e))
                 break
 
@@ -484,7 +484,7 @@ class AgoraBot():
                 # I keep treating this codebase as throwaway, I should refactor and integrate with 1. [[moa]] or 2. [[mastodon]] codebase no later than [[2022-10]].
                 self.yaml_dump_tweets(self.tweets)
             return res
-        except tweepy.error.TweepError as e:
+        except tweepy.errors.TweepyException as e:
             # triggered by duplicates, for example.
             L.debug(f'! error while replying: {e}')
             return False
@@ -598,7 +598,7 @@ class AgoraBot():
             try:
                 self.api.retweet(tweet['id'])
                 return True
-            except tweepy.error.TweepError as e:
+            except tweepy.errors.TweepyException as e:
                 L.info(f'## Skipping duplicate retweet.')
                 return False
 
@@ -694,7 +694,7 @@ class AgoraBot():
             L.info('*** get friends refreshing')
             try:
                 friends = list(tweepy.Cursor(self.api.friends).items())
-            except tweepy.error.RateLimitError:
+            except tweepy.errors.TooManyRequests:
                 # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
                 pass
         L.debug(f'*** friends: {friends}')
@@ -713,7 +713,7 @@ class AgoraBot():
         else:
             try:
                 followers = list(tweepy.Cursor(self.api.followers).items())
-            except tweepy.error.RateLimitError:
+            except tweepy.errors.TooManyRequests:
                 # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
                 # TODO: read from friends.yaml!
                 pass
@@ -877,14 +877,14 @@ def main():
     while True:
         try:
             bot.follow_followers()
-        except tweepy.error.TweepError as e:
+        except tweepy.errors.TweepyException as e:
             L.info(e)
             L.error("# Twitter api rate limit reached while trying to interact with friends.".format(e))
             L.info(f"# Backing off {BACKOFF} after exception.")
             bot.sleep()
         try: 
             bot.process_mentions()
-        except tweepy.error.TweepError as e:
+        except tweepy.errors.TweepyException as e:
             L.info(e)
             L.error("# Twitter api rate limit reached while trying to process incoming tweets.".format(e))
             L.info(f"# Backing off {BACKOFF} after exception.")

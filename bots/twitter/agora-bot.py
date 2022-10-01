@@ -150,8 +150,8 @@ class AgoraBot():
             if parent == 0:
                 break
             # go up
-            # TODO: update to API v2.
-            tweet = self.api.statuses_lookup([parent])
+            # Untested after moving to API v2.
+            tweet = self.client.get_tweet(parent)
         L.info(f'path to root: {path}')
         return path
 
@@ -260,7 +260,7 @@ class AgoraBot():
         return default
 
         # dead code below; this didn't work, perhaps conversation_id requires v2?
-        # TODO: move to API v2.
+        # TODO: delete or move to API v2.
         replies = list(tweepy.Cursor(self.api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items())
         L.debug("replies: {replies}")
         return replies
@@ -269,8 +269,7 @@ class AgoraBot():
         # Dead code as of earlier than [[2022-09-25]]
         # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
         # but I hope this won't be needed?
-        # TODO: move to API v2.
-        replies = tweepy.Cursor(self.api.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
+        replies = self.Paginator(self.client.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
         while True:
             try:
                 reply = replies.next()
@@ -352,14 +351,7 @@ class AgoraBot():
         return False
 
     def tweet_to_url(self, tweet):
-        # Somehow tweet here is still sometimes a Status as returned by Tweepy.
-        # TODO: Fix?
-        # TODO: check if Tweepy maybe updated and they support API v2? Sigh.
-        try:
-            return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
-        except NoneType:
-            self.sleep()
-            return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
+        return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
 
     def write_tweet(self, tweet, node):
 
@@ -452,7 +444,6 @@ class AgoraBot():
     def reply_to_tweet(self, tweet, reply):
         # Twitter deduplication only *mostly* works so we can't depend on it.
         # Alternatively it might be better to implement state/persistent cursors, but this is easier.
-        # TODO: move all of these to a class so we don't have to keep passing 'api' around.
         # See ample warnings below. Hopefully it's happening really soon (tm) ;)
         L.info("-> in reply_to_tweet")
         if self.already_replied(tweet):
@@ -468,11 +459,9 @@ class AgoraBot():
             return False
 
         try:
-            # TODO: move to API v2.
-            res = self.api.update_status(
-                status=reply,
-                in_reply_to_status_id=tweet.id,
-                auto_populate_reply_metadata=True
+            res = self.client.create_tweet(
+                text=reply,
+                in_reply_to_tweet_id=tweet.id,
                 )
             if res:
                 # update a global and dump to disk -- really need to refactor this into a Bot class shared with Mastodon.
@@ -598,8 +587,7 @@ class AgoraBot():
         else:
             L.info(f"## Retweeting friend: {tweet.text} by @{tweet.user}.")
             try:
-                # TODO: move to API v2.
-                self.api.retweet(tweet.id)
+                self.client.retweet(tweet.id)
                 return True
             except tweepy.errors.TweepyException as e:
                 L.info(f'## Skipping duplicate retweet.')
@@ -687,20 +675,13 @@ class AgoraBot():
     @cachetools.func.ttl_cache(ttl=600)
     def get_friends(self):
         friends = []
-        if args.new_api:
-            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following'
-            params = {
-                'max_results': 1000
-            }
-            friends = self.api_get(uri, params) or []
-        else:
-            L.info('*** get friends refreshing')
-            try:
-                friends = tweepy.Paginator(self.client.get_users_following, self.bot_user_id)
-                return friends.flatten()
-            except tweepy.errors.TooManyRequests:
-                # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
-                pass
+        L.info('*** get friends refreshing')
+        try:
+            friends = tweepy.Paginator(self.client.get_users_following, self.bot_user_id)
+            return friends.flatten()
+        except tweepy.errors.TooManyRequests:
+            # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
+            pass
         L.debug(f'*** friends: {friends}')
         return friends
 
@@ -708,20 +689,13 @@ class AgoraBot():
     def get_followers(self):
         L.info('*** get followers refreshing')
         followers = []
-        if args.new_api:
-            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/followers'
-            params = {
-                'max_results': 1000
-            }
-            followers = self.api_get(uri, params) or []
-        else:
-            try:
-                followers = tweepy.Paginator(self.client.get_users_followers, self.bot_user_id, max_results=1000)
-                return followers.flatten()
-            except tweepy.errors.TooManyRequests:
-                # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
-                # TODO: read from friends.yaml!
-                pass
+        try:
+            followers = tweepy.Paginator(self.client.get_users_followers, self.bot_user_id, max_results=1000)
+            return followers.flatten()
+        except tweepy.errors.TooManyRequests:
+            # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
+            # TODO: read from friends.yaml!
+            pass
         L.debug(f'*** followers: {followers}')
         return followers
 
@@ -733,7 +707,6 @@ class AgoraBot():
     def follow(self, user_id):
         # Twitter seems to sometimes be failing this silently sometimes and punishing us for it? Unsure.
         # Maybe it's just that the API v2 code doesn't handle error conditions well yet :)
-        # TODO: try out [[tweepy 4]]!
         if args.follow:
             return self.client.follow_user(user_id)
         else:
@@ -773,45 +746,23 @@ class AgoraBot():
             self.follow(follower.id)
 
     def get_mentions(self):
-        if args.new_api:
-            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/mentions'
-            params = {
-                'max_results': 100,
-                'expansions': 'author_id',
-                'tweet.fields': 'author_id,created_at',
-                'user.fields': 'username',
-                'since_id': self.since_id,
-            }
-            mentions = self.api_get(uri, params) or []
-        else:
-            mentions = tweepy.Paginator(
-                self.client.get_users_mentions,
-                id=self.bot_user_id,
-                expansions='author_id',
-                tweet_fields='author_id,created_at',
-                user_fields='username',
-                since_id=self.since_id
-                ).flatten()
+        mentions = tweepy.Paginator(
+            self.client.get_users_mentions,
+            id=self.bot_user_id,
+            expansions='author_id',
+            tweet_fields='author_id,created_at',
+            user_fields='username',
+            since_id=self.since_id
+            ).flatten()
         return mentions
 
     def get_timeline(self):
-        if args.new_api:
-            uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/timelines/reverse_chronological'
-            params = {
-                'max_results': 100,
-                'expansions': 'author_id',
-                'tweet.fields': 'author_id,created_at',
-                'user.fields': 'username',
-                'since_id': self.since_id,
-            }
-            timeline = self.api_get(uri, params) or []
-        else:
-            timeline = tweepy.Paginator(
-                self.client.get_home_timeline,
-                expansions='author_id',
-                tweet_fields='author_id,created_at',
-                user_fields='username',
-                ).flatten()
+        timeline = tweepy.Paginator(
+            self.client.get_home_timeline,
+            expansions='author_id',
+            tweet_fields='author_id,created_at',
+            user_fields='username',
+            ).flatten()
         return timeline
 
     # TODO: probably refactor into process_mentions and process_timeline? unsure.

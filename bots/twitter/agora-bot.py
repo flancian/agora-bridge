@@ -75,7 +75,7 @@ parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), defa
 parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), default='friends.yaml', help='The path to a graph (friends) in a yaml file, can be non-existent; we\'ll write there if we can.')
 parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--new-api', dest='new_api', action="store_true", help='Whether to prefer new/experimental APIs.')
+parser.add_argument('--timeline', dest='timeline', action="store_true", help='Whether to process the timeline of the bot (if not specified we will only process direct mentions.')
 parser.add_argument('--follow', dest='follow', action="store_true", help='Whether to follow back (this burns Twitter API quota so it might be worth disabling at times).')
 parser.add_argument('--max-age', dest='max_age', type=int, default=600, help='Threshold in age (minutes) beyond which we will not reply to tweets.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
@@ -151,7 +151,7 @@ class AgoraBot():
                 break
             # go up
             # Untested after moving to API v2.
-            tweet = self.client.get_tweet(parent)
+            tweet = self.client.get_tweet(parent).data
         L.info(f'path to root: {path}')
         return path
 
@@ -351,7 +351,11 @@ class AgoraBot():
         return False
 
     def tweet_to_url(self, tweet):
-        return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
+        try:
+            return f"https://twitter.com/{self.get_username(tweet.author_id)}/status/{tweet.id}"
+        except AttributeError:
+            # Some tweets are essentially empty of metadata and the id doesn't resolve; weird.
+            return False
 
     def write_tweet(self, tweet, node):
 
@@ -359,7 +363,8 @@ class AgoraBot():
         if not args.output_dir:
             return False
 
-        username = tweet.user.screen_name
+        username = self.get_username(tweet.author_id)
+
         user_stream_dir = mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
         user_stream_filename = os.path.join(user_stream_dir, node + '.md')
 
@@ -379,7 +384,7 @@ class AgoraBot():
         if not args.output_dir:
             return False
 
-        username = tweet.user.screen_name
+        username = self.get_username(tweet.author_id)
 
         if ('/' in node):
             # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
@@ -526,7 +531,7 @@ class AgoraBot():
         L.info(f"-> {self.tweet_to_url(tweet)}: Handling hashtags: {match.group(0)}")
         L.debug(f"...in {tweet.text}")
         hashtags = HASHTAG_RE.findall(tweet.text)
-        username = tweet.user.screen_name
+        username = self.get_username(tweet.author_id)
         # hashtag handling was disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
         # now we support basic opt in, as of 2022-05-21 this is off by default.
         if not self.wants_hashtags(username):
@@ -721,9 +726,12 @@ class AgoraBot():
         # }
         # return self.api_post(uri, params)
 
-    def get_user(self, user_id):
+    @cachetools.func.ttl_cache(ttl=600)
+    def get_username(self, user_id):
         # Could get rid of this thanks to Tweepy.
-        return self.client.get_user(user_id)
+        # Oh, but the memoizing is nice maybe? :) I wonder if Tweepy caches anyway.
+        # API V2 Client doesn't mention it.
+        return self.client.get_user(id=user_id).data.username
 
     def follow_followers(self):
         L.info("# Trying to follow back only followers.")
@@ -785,23 +793,28 @@ class AgoraBot():
             L.exception(f'# Twitter gave up on us while processing mentions, {e}.')
             BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
             mentions = []
+
         # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
-        try:
-            timeline = list(self.get_timeline())
-            L.info(f'# Processing {len(timeline)} tweets from the timeline (potentially not mentioning us.')
-        except Exception as e:
-            # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
-            L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
-            BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
+        if args.timeline:
+            try:
+                timeline = list(self.get_timeline())
+            except Exception as e:
+                # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
+                L.exception(f'# Twitter gave up on us while trying to read the timeline, {e}.')
+                BACKOFF = min(BACKOFF * 2, BACKOFF_MAX)
+                timeline = []
+        else:
             timeline = []
 
         tweets = mentions + timeline
+        L.info(f"# Processing {len(mentions)} tweets from our mentions.")
+        L.info(f"# Processing {len(timeline)} tweets from our timeline.")
         L.info(f'# Processing {len(tweets)} tweets overall.')
 
         oldies = 0
         for n, tweet in enumerate(tweets):
             L.info(f'-' * 80)
-            L.debug(f"# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}")
+            L.debug(f"# Processing tweet {n}/{len(tweets)}: https://twitter.com/{self.get_username(tweet.author_id)}/status/{tweet.id}")
 
             # if tweet.created_at < start_time:
             #     oldies += 1
@@ -842,13 +855,14 @@ def main():
     L.info('[[agora bot]] starting.')
 
     while True:
-        try:
-            bot.follow_followers()
-        except tweepy.errors.TweepyException as e:
-            L.info(e)
-            L.error("# Twitter api rate limit reached while trying to interact with friends.".format(e))
-            L.info(f"# Backing off {BACKOFF} after exception.")
-            bot.sleep()
+        if args.follow:
+            try:
+                bot.follow_followers()
+            except tweepy.errors.TweepyException as e:
+                L.info(e)
+                L.error("# Twitter api rate limit reached while trying to interact with friends.".format(e))
+                L.info(f"# Backing off {BACKOFF} after exception.")
+                bot.sleep()
         try: 
             bot.process_mentions()
         except tweepy.errors.TweepyException as e:

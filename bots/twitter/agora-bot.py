@@ -117,6 +117,7 @@ class AgoraBot():
         # Global, again, is a smell, but yolo.
         self.bot_user_id = config['bot_user_id']
         self.bot_username = config.get('bot_username', 'an_agora')
+        self.bearer_token = config['bearer_token']
         self.consumer_key = config['consumer_key']
         self.consumer_secret = config['consumer_secret']
         self.access_token = config['access_token']
@@ -128,24 +129,28 @@ class AgoraBot():
 
         # give this another try?
         # api = tweepy.API(auth, wait_on_rate_limit=True)
+        # Twitter v1 API
         self.api = tweepy.API(auth)
+        # Twitter v2 API
+        self.client = tweepy.Client(self.bearer_token, self.consumer_key, self.consumer_secret, self.access_token, self.access_token_secret)
 
     # Currently unused.
     def get_path(self, tweet, n=10):
         """Gets the tweet and up to n ancestors in the thread, returns a list (path)."""
         # I'd like the whole thread, but the API seems to make it weirdly hard to get *children*? I must be doing something wrong.
         # TODO: implement.
-        path = [tweet['id']]
+        path = [tweet.id]
         while True:
             n-=1
             if n < 0:
                 break
             parent = tweet.in_reply_to_status_id or 0
             path.append(parent)
-            L.debug(f"{tweet['id']} had parent {parent}")
+            L.debug(f"{tweet.id} had parent {parent}")
             if parent == 0:
                 break
             # go up
+            # TODO: update to API v2.
             tweet = self.api.statuses_lookup([parent])
         L.info(f'path to root: {path}')
         return path
@@ -186,7 +191,7 @@ class AgoraBot():
         uri = 'https://api.twitter.com/2/tweets?'
 
         params = {
-            'ids': tweet['id'],
+            'ids': tweet.id,
             'tweet.fields':'conversation_id'
         }
         
@@ -255,6 +260,7 @@ class AgoraBot():
         return default
 
         # dead code below; this didn't work, perhaps conversation_id requires v2?
+        # TODO: move to API v2.
         replies = list(tweepy.Cursor(self.api.search, q=f'from:an_agora conversation_id:{conversation_id}', tweet_mode='extended').items())
         L.debug("replies: {replies}")
         return replies
@@ -263,13 +269,14 @@ class AgoraBot():
         # Dead code as of earlier than [[2022-09-25]]
         # from https://stackoverflow.com/questions/52307443/how-to-get-the-replies-for-a-given-tweet-with-tweepy-and-python
         # but I hope this won't be needed?
-        replies = tweepy.Cursor(self.api.search, q='to:{}'.format(tweet['id']), since_id=tweet['id'], tweet_mode='extended').items()
+        # TODO: move to API v2.
+        replies = tweepy.Cursor(self.api.search, q='to:{}'.format(tweet.id), since_id=tweet.id, tweet_mode='extended').items()
         while True:
             try:
                 reply = replies.next()
                 if not hasattr(reply, 'in_reply_to_status_id_str'):
                     continue
-                if reply.in_reply_to_status_id == tweet['id']:
+                if reply.in_reply_to_status_id == tweet.id:
                     L.debug("reply of tweet: {}".format(reply['text']))
                     L.debug("what do now? :)")
 
@@ -338,7 +345,7 @@ class AgoraBot():
             n = len(bot_replies)
             bot_replies_text = [reply['text'] for reply in bot_replies]
             L.debug(f"## \n## already_replied() -> bot already replied {n} time(s).")
-            L.debug(f"## {tweet['text']} bot_replies: {bot_replies_text}:")
+            L.debug(f"## {tweet.text} bot_replies: {bot_replies_text}:")
             return True
 
         L.info(f"## already_replied() -> reply pending")
@@ -350,16 +357,9 @@ class AgoraBot():
         # TODO: check if Tweepy maybe updated and they support API v2? Sigh.
         try:
             return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
-        except AttributeError:
-            # yolo :)
-            return f"https://twitter.com/{tweet['user']['username']}/status/{tweet['id']}"
         except NoneType:
             self.sleep()
-            try:
-                return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
-            except AttributeError:
-                # yolo :)
-                return f"https://twitter.com/{tweet['user']['username']}/status/{tweet['id']}"
+            return f"https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}"
 
     def write_tweet(self, tweet, node):
 
@@ -367,7 +367,7 @@ class AgoraBot():
         if not args.output_dir:
             return False
 
-        username = tweet['user']['username']
+        username = tweet.user.screen_name
         user_stream_dir = mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
         user_stream_filename = os.path.join(user_stream_dir, node + '.md')
 
@@ -376,7 +376,7 @@ class AgoraBot():
             try:
                 with open(user_stream_filename, 'a') as note:
                     # TODO: add timedate like Matrix, either move to Tweepy 4 to get some sense back or pipe through the creation date.
-                    note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n  - {tweet['text']}\n")
+                    note.write(f"- [[{username}]] {self.tweet_to_url(tweet)}\n  - {tweet.text}\n")
             except:
                 L.error("Couldn't log full tweet to note in user stream.")
                 return
@@ -387,7 +387,7 @@ class AgoraBot():
         if not args.output_dir:
             return False
 
-        username = tweet['user']['username']
+        username = tweet.user.screen_name
 
         if ('/' in node):
             # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
@@ -459,7 +459,7 @@ class AgoraBot():
             L.info("-> not replying due to dedup logic")
             return False
 
-        # if not self.is_friend(tweet['user']):
+        # if not self.is_friend(tweet.user):
         #     L.info("-> not replying because this user no longer follows us.")
         #     return False
 
@@ -468,15 +468,16 @@ class AgoraBot():
             return False
 
         try:
+            # TODO: move to API v2.
             res = self.api.update_status(
                 status=reply,
-                in_reply_to_status_id=tweet['id'],
+                in_reply_to_status_id=tweet.id,
                 auto_populate_reply_metadata=True
                 )
             if res:
                 # update a global and dump to disk -- really need to refactor this into a Bot class shared with Mastodon.
                 # TODO: refactor. This is really needed -- will add a pointer to this in the Agora.
-                L.debug(tweet['id'], res)
+                L.debug(tweet.id, res)
                 # self.tweets...
                 self.tweets[self.tweet_to_url(tweet)] = self.tweet_to_url(res)
                 # This actually writes to disk; this code is pretty bad, "update a global and then call write", what!
@@ -491,8 +492,8 @@ class AgoraBot():
 
     def handle_wikilink(self, tweet, match=None):
         L.info(f"-> {self.tweet_to_url(tweet)}: Handling wikilinks, match: {match.group(0)}")
-        L.debug(f"...in {tweet['text']}")
-        wikilinks = WIKILINK_RE.findall(tweet['text'])
+        L.debug(f"...in {tweet.text}")
+        wikilinks = WIKILINK_RE.findall(tweet.text)
 
         # if tweet.retweeted:
         #     L.info(f'# Skipping retweet: {tweet.id}')
@@ -505,10 +506,10 @@ class AgoraBot():
             self.log_tweet(tweet, wikilink)
 
         response = '\n'.join(lines)
-        L.debug(f"-> Replying '{response}' to tweet id {tweet['id']}")
+        L.debug(f"-> Replying '{response}' to tweet id {tweet.id}")
 
         if self.reply_to_tweet(tweet, response):
-            L.info(f"# Replied to {tweet['id']}")
+            L.info(f"# Replied to {tweet.id}")
 
     def wants_hashtags(self, user):
         # Allowlist to begin with.
@@ -534,15 +535,16 @@ class AgoraBot():
 
     def handle_hashtag(self, tweet, match=None):
         L.info(f"-> {self.tweet_to_url(tweet)}: Handling hashtags: {match.group(0)}")
-        L.debug(f"...in {tweet['text']}")
-        hashtags = HASHTAG_RE.findall(tweet['text'])
+        L.debug(f"...in {tweet.text}")
+        hashtags = HASHTAG_RE.findall(tweet.text)
+        username = tweet.user.screen_name
         # hashtag handling was disabled while we do [[opt in]], as people were surprised negatively by the Agora also responding to them by default.
         # now we support basic opt in, as of 2022-05-21 this is off by default.
-        if not self.wants_hashtags(tweet['user']):
-            L.info(f"# User has not opted into hashtag handling yet: {tweet['user']}")
+        if not self.wants_hashtags(username):
+            L.info(f"# User has not opted into hashtag handling yet: {username}")
             return False
 
-        L.info(f"# Handling hashtags for opted-in user {tweet['user']}")
+        L.info(f"# Handling hashtags for opted-in user {username}")
 
         # unsure if we really want to skip this, in particular now that we're doing allowlisting?
         # if tweet.retweeted:
@@ -556,10 +558,10 @@ class AgoraBot():
             self.log_tweet(tweet, hashtag)
 
         response = '\n'.join(lines)
-        L.debug(f"-> Replying '{response}' to tweet id {tweet['id']}")
-        L.info(f"-> Considering reply to {tweet['id']}")
+        L.debug(f"-> Replying '{response}' to tweet id {tweet.id}")
+        L.info(f"-> Considering reply to {tweet.id}")
         if self.reply_to_tweet(tweet, response):
-            L.info(f"# Replied to {tweet['id']}")
+            L.info(f"# Replied to {tweet.id}")
 
     def is_friend(self, user):
         followers = self.get_followers()
@@ -584,19 +586,20 @@ class AgoraBot():
 
         # Retweet if coming from a friend.
         # This should probably be closed down to 'is thought to be an [[agoran]]'.
-        if not self.is_friend(tweet['author_id']):
+        if not self.is_friend(tweet.author_id):
             L.info(f'## Not retweeting: not a known friend.')
             return
         L.debug(f'## Retweeting: from a friend.')
 
         if args.dry_run:
-            L.info(f"## Retweeting friend: {tweet['text']} by @{tweet['user']}.")
+            L.info(f"## Retweeting friend: {tweet.text} by @{tweet.user}.")
             L.info(f'## Skipping retweet due to dry run.')
             return False
         else:
-            L.info(f"## Retweeting friend: {tweet['text']} by @{tweet['user']}.")
+            L.info(f"## Retweeting friend: {tweet.text} by @{tweet.user}.")
             try:
-                self.api.retweet(tweet['id'])
+                # TODO: move to API v2.
+                self.api.retweet(tweet.id)
                 return True
             except tweepy.errors.TweepyException as e:
                 L.info(f'## Skipping duplicate retweet.')
@@ -636,7 +639,7 @@ class AgoraBot():
 
     def handle_default(self, tweet, match=None):
         L.info(f"-> {self.tweet_to_url(tweet)}: Handling as default case, no clear intent found.") 
-        L.debug(f"...in {tweet['text']}")
+        L.debug(f"...in {tweet.text}")
         # L.info(f'--> No action taken.')
         # perhaps hand back a link if we have a node that seems relevant?
         # TODO: do keywords search?
@@ -693,7 +696,8 @@ class AgoraBot():
         else:
             L.info('*** get friends refreshing')
             try:
-                friends = list(tweepy.Cursor(self.api.friends).items())
+                friends = tweepy.Paginator(self.client.get_users_following, self.bot_user_id)
+                return friends.flatten()
             except tweepy.errors.TooManyRequests:
                 # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
                 pass
@@ -712,7 +716,8 @@ class AgoraBot():
             followers = self.api_get(uri, params) or []
         else:
             try:
-                followers = list(tweepy.Cursor(self.api.followers).items())
+                followers = tweepy.Paginator(self.client.get_users_followers, self.bot_user_id, max_results=1000)
+                return followers.flatten()
             except tweepy.errors.TooManyRequests:
                 # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
                 # TODO: read from friends.yaml!
@@ -723,14 +728,14 @@ class AgoraBot():
     def unfollow(self, user_id):
         # uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following/{user_id}'
         # return self.api_delete(uri)
-        return self.api.destroy_friendship(user_id=user_id)
+        return self.client.unfollow_user(user_id)
 
     def follow(self, user_id):
         # Twitter seems to sometimes be failing this silently sometimes and punishing us for it? Unsure.
         # Maybe it's just that the API v2 code doesn't handle error conditions well yet :)
         # TODO: try out [[tweepy 4]]!
         if args.follow:
-            return self.api.create_friendship(user_id=user_id)
+            return self.client.follow_user(user_id)
         else:
             L.info("Not following user as --follow was not specified.")
             return False
@@ -744,28 +749,28 @@ class AgoraBot():
         # return self.api_post(uri, params)
 
     def get_user(self, user_id):
-        uri = f'https://api.twitter.com/2/users/{user_id}'
-        params = {
-            'user.fields': 'username'
-        }
-        return self.api_get(uri, params)
+        # Could get rid of this thanks to Tweepy.
+        return self.client.get_user(user_id)
 
     def follow_followers(self):
         L.info("# Trying to follow back only followers.")
-        friends = {friend['id'] for friend in self.get_friends()}
+        friends = {friend for friend in self.get_friends()}
         # write list here?
-        followers = {follower['id'] for follower in self.get_followers()}
+        followers = {follower for follower in self.get_followers()}
         # write list here?
         L.debug(f"# friends: {friends}")
         L.debug(f"# followers: {followers}")
 
         for friend in friends - followers:
             L.debug(f"# Trying to unfollow {friend} as they don't follow us.")
-            self.unfollow(friend)
+            self.unfollow(friend.id)
 
         for follower in followers:
+            if follower.protected:
+                # Trying to follow back protected users causes trouble, as Twitter doesn't like it when we try to follow a user more than once (and they take to approve follows, sometimes never do.)
+                pass
             L.debug(f"# Trying to follow {follower} as they follow us.")
-            self.follow(follower)
+            self.follow(follower.id)
 
     def get_mentions(self):
         if args.new_api:
@@ -779,7 +784,14 @@ class AgoraBot():
             }
             mentions = self.api_get(uri, params) or []
         else:
-            mentions = list(tweepy.Cursor(self.api.mentions_timeline, count=40, tweet_mode='extended').items())
+            mentions = tweepy.Paginator(
+                self.client.get_users_mentions,
+                id=self.bot_user_id,
+                expansions='author_id',
+                tweet_fields='author_id,created_at',
+                user_fields='username',
+                since_id=self.since_id
+                ).flatten()
         return mentions
 
     def get_timeline(self):
@@ -794,7 +806,12 @@ class AgoraBot():
             }
             timeline = self.api_get(uri, params) or []
         else:
-            timeline = list(tweepy.Cursor(self.api.home_timeline, count=40, tweet_mode='extended').items())
+            timeline = tweepy.Paginator(
+                self.client.get_home_timeline,
+                expansions='author_id',
+                tweet_fields='author_id,created_at',
+                user_fields='username',
+                ).flatten()
         return timeline
 
     # TODO: probably refactor into process_mentions and process_timeline? unsure.
@@ -809,7 +826,7 @@ class AgoraBot():
         start_time = datetime.datetime.now () - datetime.timedelta(minutes=args.max_age)
         # explicit mentions
         try:
-            mentions = self.get_mentions()
+            mentions = list(self.get_mentions())
             L.info(f'# Processing {len(mentions)} mentions.')
             # hack
         except Exception as e:
@@ -819,7 +836,7 @@ class AgoraBot():
             mentions = []
         # our tweets and those from users that follow us (actually that we follow, but we try to keep that up to date).
         try:
-            timeline = self.get_timeline()
+            timeline = list(self.get_timeline())
             L.info(f'# Processing {len(timeline)} tweets from the timeline (potentially not mentioning us.')
         except Exception as e:
             # Twitter gives back 429 surprisingly often for this, no way I'm hitting the stated limits?
@@ -833,10 +850,9 @@ class AgoraBot():
         oldies = 0
         for n, tweet in enumerate(tweets):
             L.info(f'-' * 80)
-            tweet['user'] = self.get_user(tweet['author_id'])
-            L.debug(f"# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet['user']}/status/{tweet['id']}")
+            L.debug(f"# Processing tweet {n}/{len(tweets)}: https://twitter.com/{tweet.user.screen_name}/status/{tweet.id}")
 
-            # if tweet['created_at'] < start_time:
+            # if tweet.created_at < start_time:
             #     oldies += 1
             #     continue
 
@@ -851,11 +867,11 @@ class AgoraBot():
                     (DEFAULT_RE, self.handle_default),
                     ]
             for regexp, handler in cmds:
-                match = regexp.search(tweet['text'].lower())
+                match = regexp.search(tweet.text.lower())
                 if match:
                     handler(tweet, match)
-            L.debug(f'# Processed tweet: {tweet["id"], tweet["text"]}')
-            new_since_id = max(int(tweet['id']), new_since_id)
+            L.debug(f'# Processed tweet: {tweet.id, tweet.text}')
+            new_since_id = max(int(tweet.id), new_since_id)
 
         # L.info(f'-> {oldies} too old (beyond current threshold of {start_time}).')
         return new_since_id

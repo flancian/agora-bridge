@@ -7,4 +7,4 @@ mkdir -p ${OUTPUT}
 export PATH=$HOME/.local/bin:${PATH}
 # 10080 = 7d in minutes
 # 40320 = 4w in minutes
-poetry run ./agora-bot.py --config agora-bot.yaml --timeline --follow --output-dir=${OUTPUT} --max-age=40320 $@ 
+poetry run ./agora-bot.py --config agora-bot.yaml --timeline --output-dir=${OUTPUT} --max-age=40320 $@ 

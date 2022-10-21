@@ -841,7 +841,8 @@ class AgoraBot():
             # Process commands, in order of priority
             cmds = [
                     (HELP_RE, self.handle_help),
-                    (PUSH_RE, self.handle_push),
+                    # Next time I'll make sure this is working before re-enabling :)
+                    # (PUSH_RE, self.handle_push),
                     (OPT_IN_RE, self.handle_opt_in),
                     (OPT_OUT_RE, self.handle_opt_out),
                     (WIKILINK_RE, self.handle_wikilink),

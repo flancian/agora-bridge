@@ -12,13 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Exploring some code convergence between bots.
 
-# an [[agora bridge]], that is, a utility that takes a .yaml file describing a set of [[personal knowledge graphs]] or [[digital gardens]] and pulls them to be consumed by other bridges or an [[agora server]]. 
-# -- [[flancian]]
-
-# I need to figure out if I should move to the streaming API somehow, but I sort of like the statelessness of this approach.
-# Also this and the mastodon version need to be refactored so they share at least bot logic code.
-
+import argparse
 
 # https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
 class readable_dir(argparse.Action):
@@ -38,4 +35,3 @@ def mkdir(string):
         if output.stderr:
             L.error(output.stderr)
     return os.path.abspath(string)
-

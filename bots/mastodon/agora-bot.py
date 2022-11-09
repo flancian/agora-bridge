@@ -28,6 +28,7 @@ import yaml
 from collections import OrderedDict
 from datetime import datetime
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
+from .. import common
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 # thou shall not use regexes to parse html, except when yolo
@@ -36,22 +37,11 @@ PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
 # Buggy, do not enable without revamping build_reply()
 P_HELP = 0.0
 
-# https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
-class readable_dir(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        prospective_dir=values
-        if not os.path.isdir(prospective_dir):
-            raise argparse.ArgumentTypeError("readable_dir:{0} is not a valid path".format(prospective_dir))
-        if os.access(prospective_dir, os.R_OK):
-            setattr(namespace,self.dest,prospective_dir)
-        else:
-            raise argparse.ArgumentTypeError("readable_dir:{0} is not a readable dir".format(prospective_dir))
-
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 # parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=True, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--output-dir', dest='output_dir', action=common.readable_dir, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 parser.add_argument('--catch-up', dest='catch_up', action="store_true", help='Whether to run code to catch up on missed toots (e.g. because we were down for a bit, or because this is a new bot instance.')
 args = parser.parse_args()
@@ -64,6 +54,7 @@ else:
     L.setLevel(logging.INFO)
 
 def slugify(wikilink):
+    # As of 2022-07 or so we're not slugifying anymore, but rather quote_plusing.
     # trying to keep it light here for simplicity, wdyt?
     # c.f. util.py in [[agora server]].
     # argh, this should really really be centralized/factored out, but the fact that we have two different repos makes this a bit harder than I'd like (without introducing cross-repo dependencies).
@@ -124,6 +115,54 @@ def log_toot(toot, nodes):
             L.error("Couldn't log toot to note.")
             return False
     return True
+
+def write_post(toot, nodes):
+    # TODO: fix this.
+
+    L.debug(f"Maybe logging toot if user has opted in.")
+    if not args.output_dir:
+        return False
+
+    username = toot.account.username
+
+    user_stream_dir = common.mkdir(os.path.join(args.output_dir, username))
+    user_stream_filename = os.path.join(user_stream_dir, node + '.md')
+
+    if self.wants_writes(username):
+        L.info(f"User {username} has opted in to writing, pushing (publishing) full post text to an Agora.")
+        try:
+            with open(user_stream_filename, 'a') as note:
+                # TODO: add timedate like Matrix, either move to Tweepy 4 to get some sense back or pipe through the creation date.
+                note.write(f"- [[{toot.created_at}]] @[[{username}]]: {self.post_to_url(post)}\n\n{post.text}\n\n---\n\n")
+        except:
+            L.error("Couldn't log full post to note in user stream.")
+            return
+    else:
+        L.info(f"User {username} has NOT opted in, skipping logging full post.")
+
+def is_mentioned_in(username, node):
+    # TODO: fix this.
+    if not args.output_dir:
+        return False
+
+    if ('/' in node):
+        # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+        node = os.path.split(node)[-1]
+
+    agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
+    filename = os.path.join(agora_stream_dir, node + '.md')
+    L.info(f"Checking if {username} is mentioned in {node} meaning {filename}.")
+
+    try:
+        with open(filename, 'r') as note:
+            if f'[[{username}]]' in note.read():
+                L.info(f"User {username} is mentioned in {node}.")
+                return True
+            else:
+                L.info(f"User {username} not mentioned in {node}.")
+                return False
+    except FileNotFoundError:
+        return False
 
 class AgoraBot(StreamListener):
     """main class for [[agora bot]] for [[mastodon]]."""

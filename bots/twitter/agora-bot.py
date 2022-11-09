@@ -341,7 +341,8 @@ class AgoraBot():
             return False
 
     def write_tweet(self, tweet, node):
-        # TODO: This should call common.write_post?
+        # TODO: This should call a common.write_post maybe?
+        # But not for now :)
 
         L.debug(f"Maybe logging tweet if user has opted in.")
         if not args.output_dir:
@@ -357,7 +358,7 @@ class AgoraBot():
             try:
                 with open(user_stream_filename, 'a') as note:
                     # TODO: add timedate like Matrix, either move to Tweepy 4 to get some sense back or pipe through the creation date.
-                    note.write(f"- [[{tweet.created_at}]] @[[{username}]]: {self.tweet_to_url(tweet)}\n\n{tweet.text}\n\n---\n\n")
+                    note.write(f"- [[{tweet.created_at}]] @[[{username}]] {self.tweet_to_url(tweet)}\n\n  - {tweet.text}\n\n---\n\n")
             except:
                 L.error("Couldn't log full tweet to note in user stream.")
                 return

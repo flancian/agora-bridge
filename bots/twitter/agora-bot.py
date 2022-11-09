@@ -12,13 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-# an [[agora bridge]], that is, a utility that takes a .yaml file describing a set of [[personal knowledge graphs]] or [[digital gardens]] and pulls them to be consumed by other bridges or an [[agora server]]. 
-# -- [[flancian]]
-
-# I am sad about all the passing about of 'api', in the next refactor I'll put everything in a class.
-# I need to figure out if I should move to the streaming API somehow, but I sort of like the statelessness of this approach.
-# Also this and the mastodon version need to be refactored so they share at least bot logic code.
+#
+# Notes by [[flancian]] follow:
+#
+# - I am sad about all the passing about of 'api', in the next refactor I'll put everything in a class.
+#   -> Update(2022-11): done :)
+# - I need to figure out if I should move to the streaming API somehow, but I sort of like the statelessness of this approach.
+# - Also this and the mastodon version need to be refactored so they share at least bot logic code.
+#   -> On it now ;)
 
 import argparse
 import base64
@@ -38,6 +39,7 @@ import time
 import tweepy
 import urllib
 import yaml
+from .. import common 
 
 # Bot logic globals.
 # Regexes are in order of precedence.
@@ -55,17 +57,6 @@ P_HELP = 0.1
 BACKOFF = 15
 BACKOFF_MAX = 600
 
-# https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
-class readable_dir(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        prospective_dir=values
-        if not os.path.isdir(prospective_dir):
-            raise argparse.ArgumentTypeError("readable_dir:{0} is not a valid path".format(prospective_dir))
-        if os.access(prospective_dir, os.R_OK):
-            setattr(namespace,self.dest,prospective_dir)
-        else:
-            raise argparse.ArgumentTypeError("readable_dir:{0} is not a readable dir".format(prospective_dir))
-
 # argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -73,7 +64,7 @@ parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), defa
 # 2022-09-25: this might not actually be a good idea :) better to use sqlite3 and cut it with the yaml? we have Markdown writing for humans.
 # TODO: add sqlite.
 parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), default='friends.yaml', help='The path to a graph (friends) in a yaml file, can be non-existent; we\'ll write there if we can.')
-parser.add_argument('--output-dir', dest='output_dir', action=readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
+parser.add_argument('--output-dir', dest='output_dir', action=common.readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--timeline', dest='timeline', action="store_true", help='Whether to process the timeline of the bot (if not specified we will only process direct mentions.')
 parser.add_argument('--follow', dest='follow', action="store_true", help='Whether to follow back (this burns Twitter API quota so it might be worth disabling at times).')
@@ -88,14 +79,6 @@ if args.verbose:
     L.setLevel(logging.DEBUG)
 else:
     L.setLevel(logging.INFO)
-
-def mkdir(string):
-    if not os.path.isdir(string):
-        print(f"Trying to create {string}.")
-        output = subprocess.run(['mkdir', '-p', string], capture_output=True)
-        if output.stderr:
-            L.error(output.stderr)
-    return os.path.abspath(string)
 
 class AgoraBot():
 
@@ -358,6 +341,7 @@ class AgoraBot():
             return False
 
     def write_tweet(self, tweet, node):
+        # TODO: This should call common.write_post?
 
         L.debug(f"Maybe logging tweet if user has opted in.")
         if not args.output_dir:
@@ -365,7 +349,7 @@ class AgoraBot():
 
         username = self.get_username(tweet.author_id)
 
-        user_stream_dir = mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
+        user_stream_dir = common.mkdir(os.path.join(args.output_dir, username + '@twitter.com'))
         user_stream_filename = os.path.join(user_stream_dir, node + '.md')
 
         if self.wants_writes(username):
@@ -381,6 +365,7 @@ class AgoraBot():
             L.info(f"User {username} has NOT opted in, skipping logging full tweet.")
 
     def log_tweet(self, tweet, node):
+        # TODO: This should call common.log_post?
         if not args.output_dir:
             return False
 
@@ -392,7 +377,7 @@ class AgoraBot():
 
         # dedup logic. we use the agora bot's stream as log as that's data under the control of the Agora (we only store a link).
         try:
-            agora_stream_dir = mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
+            agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
             agora_stream_filename = os.path.join(agora_stream_dir, node + '.md')
 
             with open(agora_stream_filename, 'r') as note:
@@ -415,6 +400,7 @@ class AgoraBot():
         self.write_tweet(tweet, node)
 
     def is_mentioned_in(self, username, node):
+        # TODO: this should call common.is_mentioned_in?
         if not args.output_dir:
             return False
 
@@ -422,7 +408,7 @@ class AgoraBot():
             # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
             node = os.path.split(node)[-1]
 
-        agora_stream_dir = mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
+        agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
         filename = os.path.join(agora_stream_dir, node + '.md')
         L.info(f"Checking if {username} is mentioned in {node} meaning {filename}.")
 

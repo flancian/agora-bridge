@@ -15,5 +15,5 @@
 
 echo "If this doesn't work, install poetry and run 'poetry install' as per README.md first."
 # This shouldn't be needed but it is when running as a systemd service for some reason.
-source $HOME/.poetry/env
+export PATH=$HOME/.local/bin:${PATH}
 poetry run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 0.5 --reset_only True

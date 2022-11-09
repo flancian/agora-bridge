@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright 2021 Google LLC
+# Copyright 2020 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This is for the JS/TS based API, which is experimental.
-npm install
-npx ts-node app.ts
+echo "If this doesn't work, install poetry and run 'poetry install' as per README.md first."
+# This shouldn't be needed but it is when running as a systemd service for some reason.
+export PATH=$HOME/.local/bin:${PATH}
+
+export FLASK_APP=api
+export AGORA_CONFIG="DevelopmentConfig"
+poetry run flask run -h 0.0.0.0 -p 5018

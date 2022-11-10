@@ -76,94 +76,6 @@ def uniq(l):
     # only works for hashable items
     return sorted(list(set(l)), key=str.casefold)
 
-def log_toot(toot, nodes):
-    if not args.output_dir:
-        # note this actually means that if output_dir is not set up this bot won't respond to messages,
-        # as the caller currently thinks False -> do not post (to prevent duplicates).
-        return False
-
-    for node in nodes:
-        if ('/' in node):
-            # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
-            node = os.path.split(node)[-1]
-
-        filename = os.path.join(args.output_dir, node + '.md')
-
-        # dedup logic.
-        try:
-            with open(filename, 'r') as note:
-                note = note.read()
-                L.info(f"Note: {note}.")
-                # why both? it has been lost to the mists of time, or maybe the commit log :)
-                # perhaps uri is what's set in pleroma?
-                if note and (toot.url or toot.uri) in note:
-                    L.info("Toot already logged to note.")
-                    return False
-                else:
-                    L.info("Toot will be logged to note.")
-        except FileNotFoundError:
-            pass
-
-        # try to append.
-        try:
-            with open(filename, 'a') as note:
-                if toot.url:
-                    note.write(f"- [[{toot.account.username}]] {toot.url}\n")
-                else:
-                    note.write(f"- [[{toot.account.username}]] {toot.uri}\n")
-        except: 
-            L.error("Couldn't log toot to note.")
-            return False
-    return True
-
-def write_post(toot, nodes):
-    # TODO: fix this.
-
-    L.debug(f"Maybe logging toot if user has opted in.")
-    if not args.output_dir:
-        return False
-
-    username = toot.account.username
-
-    user_stream_dir = common.mkdir(os.path.join(args.output_dir, username))
-    user_stream_filename = os.path.join(user_stream_dir, node + '.md')
-
-    if self.wants_writes(username):
-        L.info(f"User {username} has opted in to writing, pushing (publishing) full post text to an Agora.")
-        try:
-            with open(user_stream_filename, 'a') as note:
-                # TODO: add timedate like Matrix, either move to Tweepy 4 to get some sense back or pipe through the creation date.
-                note.write(f"- [[{toot.created_at}]] @[[{username}]]: {self.post_to_url(post)}\n\n{post.text}\n\n---\n\n")
-        except:
-            L.error("Couldn't log full post to note in user stream.")
-            return
-    else:
-        L.info(f"User {username} has NOT opted in, skipping logging full post.")
-
-def is_mentioned_in(username, node):
-    # TODO: fix this.
-    if not args.output_dir:
-        return False
-
-    if ('/' in node):
-        # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
-        node = os.path.split(node)[-1]
-
-    agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
-    filename = os.path.join(agora_stream_dir, node + '.md')
-    L.info(f"Checking if {username} is mentioned in {node} meaning {filename}.")
-
-    try:
-        with open(filename, 'r') as note:
-            if f'[[{username}]]' in note.read():
-                L.info(f"User {username} is mentioned in {node}.")
-                return True
-            else:
-                L.info(f"User {username} not mentioned in {node}.")
-                return False
-    except FileNotFoundError:
-        return False
-
 class AgoraBot(StreamListener):
     """main class for [[agora bot]] for [[mastodon]]."""
     # this follows https://mastodonpy.readthedocs.io/en/latest/#streaming and https://github.com/ClearlyClaire/delibird/blob/master/main.py
@@ -206,6 +118,108 @@ class AgoraBot(StreamListener):
         msg = '\n'.join(lines)
         return msg
 
+    def log_toot(self, toot, nodes):
+        if not args.output_dir:
+            # note this actually means that if output_dir is not set up this bot won't respond to messages,
+            # as the caller currently thinks False -> do not post (to prevent duplicates).
+            return False
+
+        for node in nodes:
+            if ('/' in node):
+                # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+                node = os.path.split(node)[-1]
+
+            filename = os.path.join(args.output_dir, node + '.md')
+
+            # dedup logic.
+            try:
+                with open(filename, 'r') as note:
+                    note = note.read()
+                    L.info(f"Note: {note}.")
+                    # why both? it has been lost to the mists of time, or maybe the commit log :)
+                    # perhaps uri is what's set in pleroma?
+                    if note and (toot.url or toot.uri) in note:
+                        L.info("Toot already logged to note.")
+                        return False
+                    else:
+                        L.info("Toot will be logged to note.")
+            except FileNotFoundError:
+                pass
+
+            # try to append.
+            try:
+                with open(filename, 'a') as note:
+                    url = toot.url or toot.uri
+                    note.write(f"- [[{toot.account.username}]] {url}\n")
+            except: 
+                L.error("Couldn't log toot to note.")
+                return False
+        return True
+
+    def write_toot(self, toot, nodes):
+        L.debug(f"Maybe logging toot if user has opted in.")
+        if not args.output_dir:
+            return False
+
+        username = toot.account.username
+
+        if not self.wants_writes(username):
+            L.info(f"User {username} has NOT opted in, skipping logging full post.")
+            return False
+        L.info(f"User {username} has opted in to writing, pushing (publishing) full post text to an Agora.")
+
+        user_stream_dir = common.mkdir(os.path.join(args.output_dir, username))
+
+        for node in nodes:
+            user_stream_filename = os.path.join(user_stream_dir, node + '.md')
+            try:
+                with open(user_stream_filename, 'a') as note:
+                    url = toot.url or toot.uri
+                    note.write(f"- [[{toot.created_at}]] @[[{username}]] {url}\n\n  - {toot.content}\n\n")
+            except:
+                L.error("Couldn't log full post to note in user stream.")
+                return
+
+    def is_mentioned_in(self, username, node):
+        # TODO: fix this.
+        if not args.output_dir:
+            return False
+
+        if ('/' in node):
+            # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+            node = os.path.split(node)[-1]
+
+        agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
+        filename = os.path.join(agora_stream_dir, node + '.md')
+        L.info(f"Checking if {username} is mentioned in {node} meaning {filename}.")
+
+        try:
+            with open(filename, 'r') as note:
+                if f'[[{username}]]' in note.read():
+                    L.info(f"User {username} is mentioned in {node}.")
+                    return True
+                else:
+                    L.info(f"User {username} not mentioned in {node}.")
+                    return False
+        except FileNotFoundError:
+            return False
+
+    def wants_writes(self, user):
+        # Allowlist to begin testing? :)
+        WANTS_WRITES = ['@flancian@social.coop']
+
+        if user in WANTS_WRITES:
+            return True
+        # Trying to infer opt in status from the Agora: does the node 'push' contain a mention of the user?
+        if self.is_mentioned_in(user, 'push') and not self.is_mentioned_in(user, 'nopush'):
+            return True
+        # Same for [[opt in]]
+        if self.is_mentioned_in(user, 'opt in') and not self.is_mentioned_in(user, 'opt out'):
+            return True
+        return False
+
+
+
     def maybe_reply(self, status, msg, entities):
 
         if args.dry_run:
@@ -213,8 +227,12 @@ class AgoraBot(StreamListener):
             return False
 
         # we use the log as a database :)
-        if log_toot(status, entities):
+        if self.log_toot(status, entities):
             self.send_toot(msg, status.id)
+            # maybe write the full message to disk if the user seems to have opted in.
+            # one user -> one directory, as that allows us to easily transfer history to users.
+            # [[digital self determination]]
+            self.write_toot(status, entities)
         else:
             L.info("-> not replying due to failed or redundant logging, skipping to avoid duplicates.")
 

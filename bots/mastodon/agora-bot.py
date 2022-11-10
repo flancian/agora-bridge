@@ -28,7 +28,8 @@ import yaml
 from collections import OrderedDict
 from datetime import datetime
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
-from .. import common
+
+import common
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 # thou shall not use regexes to parse html, except when yolo

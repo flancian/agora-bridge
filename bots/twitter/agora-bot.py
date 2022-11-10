@@ -39,7 +39,8 @@ import time
 import tweepy
 import urllib
 import yaml
-from .. import common 
+# LOL, this 100% doesn't work and I don't know why I thought it would :)
+# from .. import common 
 
 # Bot logic globals.
 # Regexes are in order of precedence.

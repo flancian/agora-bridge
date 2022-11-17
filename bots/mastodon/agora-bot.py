@@ -154,9 +154,9 @@ class AgoraBot(StreamListener):
 
             # try to append.
             try:
-                with open(filename, 'a') as note:
+                with open(bot_stream_filename, 'a') as note:
                     url = toot.url or toot.uri
-                    note.write(f"- [[{toot.account.username}]] {url}\n")
+                    note.write(f"- [[{toot.account.acct}]] {url}\n")
             except: 
                 L.error("Couldn't log toot to note.")
                 return False
@@ -167,7 +167,8 @@ class AgoraBot(StreamListener):
         if not args.output_dir:
             return False
 
-        username = toot.account.username
+        # toot.account.acct is flancian@social.coop, .username is actually just flancian
+        username = toot.account.acct
 
         if not self.wants_writes(username):
             L.info(f"User {username} has NOT opted in, skipping logging full post.")

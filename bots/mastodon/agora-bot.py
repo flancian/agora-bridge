@@ -168,8 +168,6 @@ class AgoraBot(StreamListener):
 
         username = toot.account.username
 
-        common.write()
-
         if not self.wants_writes(username):
             L.info(f"User {username} has NOT opted in, skipping logging full post.")
             return False

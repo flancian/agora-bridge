@@ -135,7 +135,7 @@ class AgoraBot(StreamListener):
                 node = os.path.split(node)[-1]
 
             bot_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username))
-            bot_stream_filename = os.path.join(user_stream_dir, node + '.md')
+            bot_stream_filename = os.path.join(bot_stream_dir, node + '.md')
 
             # dedup logic.
             try:

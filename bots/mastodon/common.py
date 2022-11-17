@@ -18,6 +18,7 @@
 # This is unusable currently because bots can't import "up" in the tree due to how Python works, and the complexity needed to "fix" that wouldn't be a good investment, more like a costly hack. Better to refactor further and merge this Python codebase currently under 'bots' (and associated virtual environments) up to the root?
 
 import argparse
+import os
 
 # https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
 class readable_dir(argparse.Action):

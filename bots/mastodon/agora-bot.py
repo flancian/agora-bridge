@@ -45,7 +45,7 @@ parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPu
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 # parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--output-dir', dest='output_dir', action=common.readable_dir, required=True, help='The path to a directory where data will be dumped as needed.')
+parser.add_argument('--output-dir', dest='output_dir', required=True, help='The path to a directory where data will be dumped as needed. If it does not exist, we will try to create it.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 parser.add_argument('--catch-up', dest='catch_up', action="store_true", help='Whether to run code to catch up on missed toots (e.g. because we were down for a bit, or because this is a new bot instance.')
 args = parser.parse_args()
@@ -326,13 +326,13 @@ def main():
 
     # Set up Mastodon API.
     mastodon = Mastodon(
-	access_token = config['access_token'],
-	api_base_url = config['api_base_url'],
+        access_token = config['access_token'],
+        api_base_url = config['api_base_url'],
     )
 
-    bot_username = f"config['username']@config['instance']"
+    bot_username = f"{config['user']}@{config['instance']}"
 
-    bot = AgoraBot(mastodon, bot_username])
+    bot = AgoraBot(mastodon, bot_username)
     followers = mastodon.account_followers(mastodon.me().id)
     watching = get_watching(mastodon)
 

@@ -6,13 +6,12 @@
 
 # [[botsin space]] is a good default for bots in the fediverse.
 # the bot user in your chosen instance. for @agora@botsin.space, 'agora'.
-- user: agora
+user: agora
 # for @agora@botsin.space, 'botsin.space'.
-- instance: botsin.space
+instance: botsin.space
 # a bit redundant but gives protocol port flexibility so why not.
-- api_base_url: https://botsin.space/
+api_base_url: https://botsin.space/
 
 # keep this secret.  
 # can generate one in https://botsin.space/settings/applications, create an application as needed.
-- access_token: keep-this-secret
-
+access_token: keep-this-secret

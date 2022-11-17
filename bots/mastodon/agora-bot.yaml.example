@@ -5,9 +5,14 @@
 #   - for instructions to set up a fully working [[agora]] using this and other repos, please consult to https://anagora.org/agora-setup.
 
 # [[botsin space]] is a good default for bots in the fediverse.
+# the bot user in your chosen instance. for @agora@botsin.space, 'agora'.
+- user: agora
+# for @agora@botsin.space, 'botsin.space'.
+- instance: botsin.space
+# a bit redundant but gives protocol port flexibility so why not.
 - api_base_url: https://botsin.space/
+
 # keep this secret.  
 # can generate one in https://botsin.space/settings/applications, create an application as needed.
 - access_token: keep-this-secret
-# the bot user in your chosen instance.
-- user: agora
+

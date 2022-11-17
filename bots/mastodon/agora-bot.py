@@ -29,8 +29,9 @@ from collections import OrderedDict
 from datetime import datetime
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
 
-# haha, see comment in ../common.py.
-# changing approaches, bots should only really write by calling the API; direct writing to disk was a hack.
+# [[2022-11-17]]: changing approaches, bots should write by calling an Agora API; direct writing to disk was a hack.
+# common.py should have the methods to write resources to a node in any case.
+# (maybe direct writing to disk can remain as an option, as it's very simple and convenient if people are running local agoras?).
 import common
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
@@ -83,10 +84,11 @@ class AgoraBot(StreamListener):
     """main class for [[agora bot]] for [[mastodon]]."""
     # this follows https://mastodonpy.readthedocs.io/en/latest/#streaming and https://github.com/ClearlyClaire/delibird/blob/master/main.py
 
-    def __init__(self, mastodon):
+    def __init__(self, mastodon, bot_username):
         StreamListener.__init__(self)
         self.mastodon = mastodon
-        L.info('[[agora bot]] started!')
+        self.bot_username = bot_username
+        L.info(f'[[agora bot]] for {bot_username} started!')
 
     def send_toot(self, msg, in_reply_to_id=None):
         L.info('sending toot.')
@@ -166,6 +168,8 @@ class AgoraBot(StreamListener):
 
         username = toot.account.username
 
+        common.write()
+
         if not self.wants_writes(username):
             L.info(f"User {username} has NOT opted in, skipping logging full post.")
             return False
@@ -192,7 +196,7 @@ class AgoraBot(StreamListener):
             # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
             node = os.path.split(node)[-1]
 
-        agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username + '@twitter.com'))
+        agora_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username))
         filename = os.path.join(agora_stream_dir, node + '.md')
         L.info(f"Checking if {username} is mentioned in {node} meaning {filename}.")
 
@@ -214,7 +218,7 @@ class AgoraBot(StreamListener):
         if user in WANTS_WRITES:
             return True
         # Trying to infer opt in status from the Agora: does the node 'push' contain a mention of the user?
-        if self.is_mentioned_in(user, 'push') and not self.is_mentioned_in(user, 'nopush'):
+        if self.is_mentioned_in(user, 'push') and not self.is_mentioned_in(user, 'no push'):
             return True
         # Same for [[opt in]]
         if self.is_mentioned_in(user, 'opt in') and not self.is_mentioned_in(user, 'opt out'):
@@ -320,13 +324,15 @@ def main():
     except yaml.YAMLError as e:
         L.error(e)
 
-    # Set up Mastodon
+    # Set up Mastodon API.
     mastodon = Mastodon(
 	access_token = config['access_token'],
 	api_base_url = config['api_base_url'],
     )
-    
-    bot = AgoraBot(mastodon)
+
+    bot_username = f"config['username']@config['instance']"
+
+    bot = AgoraBot(mastodon, bot_username])
     followers = mastodon.account_followers(mastodon.me().id)
     watching = get_watching(mastodon)
 

@@ -1,5 +1,6 @@
 #!/bin/bash
-. venv/bin/activate
+# Trying to move to [[poetry]] across the board.
+# . venv/bin/activate
 OUTPUT=/home/flancian/agora/stream/agora@botsin.space
 mkdir ${OUTPUT}
-./agora-bot.py --config agora-bot.yaml --catch-up --dry-run --output=${OUTPUT} $@
+poetry run ./agora-bot.py --config agora-bot.yaml --catch-up --dry-run --output=${OUTPUT} $@

@@ -29,6 +29,8 @@ from collections import OrderedDict
 from datetime import datetime
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
 
+# haha, see comment in ../common.py.
+# changing approaches, bots should only really write by calling the API; direct writing to disk was a hack.
 import common
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Will migrate to poetry.
 # . venv/bin/activate
-OUTPUT=/home/agora/agora/stream/agora@botsin.space
+OUTPUT=/home/agora/agora/stream/
 mkdir ${OUTPUT}
 # This shouldn't be needed but it is when running something based on Poetry as a systemd service for some reason.
 export PATH=$HOME/.local/bin:${PATH}

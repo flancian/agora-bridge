@@ -19,6 +19,7 @@
 
 import argparse
 import os
+import subprocess
 
 # https://stackoverflow.com/questions/11415570/directory-path-types-with-argparse
 class readable_dir(argparse.Action):

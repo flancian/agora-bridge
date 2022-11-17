@@ -19,6 +19,7 @@ import argparse
 import glob
 import logging
 import os
+import subprocess
 import random
 import re
 import time
@@ -43,7 +44,6 @@ P_HELP = 0.0
 
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
-# parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where data will be dumped as needed.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--output-dir', dest='output_dir', required=True, help='The path to a directory where data will be dumped as needed. If it does not exist, we will try to create it.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
@@ -134,11 +134,12 @@ class AgoraBot(StreamListener):
                 # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
                 node = os.path.split(node)[-1]
 
-            filename = os.path.join(args.output_dir, node + '.md')
+            bot_stream_dir = common.mkdir(os.path.join(args.output_dir, self.bot_username))
+            bot_stream_filename = os.path.join(user_stream_dir, node + '.md')
 
             # dedup logic.
             try:
-                with open(filename, 'r') as note:
+                with open(bot_stream_filename, 'r') as note:
                     note = note.read()
                     L.info(f"Note: {note}.")
                     # why both? it has been lost to the mists of time, or maybe the commit log :)
@@ -180,7 +181,7 @@ class AgoraBot(StreamListener):
             try:
                 with open(user_stream_filename, 'a') as note:
                     url = toot.url or toot.uri
-                    note.write(f"- [[{toot.created_at}]] @[[{username}]] {url}\n\n  - {toot.content}\n\n")
+                    note.write(f"- [[{toot.created_at}]] @[[{username}]] {url}:\n  - {toot.content}\n")
             except:
                 L.error("Couldn't log full post to note in user stream.")
                 return

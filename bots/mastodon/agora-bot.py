@@ -287,7 +287,7 @@ class AgoraBot(StreamListener):
             if match:
                 handler(status, match)
 
-   def handle_update(self, status):
+    def handle_update(self, status):
         """Handle toots with [[patterns]] by people that follow us."""
         # Process commands, in order of priority
         cmds = [(PUSH_RE, self.handle_push),

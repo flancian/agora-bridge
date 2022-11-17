@@ -225,8 +225,6 @@ class AgoraBot(StreamListener):
             return True
         return False
 
-
-
     def maybe_reply(self, status, msg, entities):
 
         if args.dry_run:
@@ -289,7 +287,7 @@ class AgoraBot(StreamListener):
             if match:
                 handler(status, match)
 
-    def handle_update(self, status):
+   def handle_update(self, status):
         """Handle toots with [[patterns]] by people that follow us."""
         # Process commands, in order of priority
         cmds = [(PUSH_RE, self.handle_push),
@@ -301,11 +299,18 @@ class AgoraBot(StreamListener):
                 L.info(f'Got a status with a pattern! {status.url}')
                 handler(status, match)
 
+    def handle_follow(self, notification):
+        """Try to handle live follows of [[agora bot]]."""
+        L.info('Got a follow!')
+        mastodon.account_follow(notification.account)
+
     def on_notification(self, notification):
         # we get this for explicit mentions.
         self.last_read_notification = notification.id
         if notification.type == 'mention':
             self.handle_mention(notification.status)
+        elif notification.type == 'follow':
+            self.handle_follow(notification.status)
         else:
             L.info(f'received unhandled notification type: {notification.type}')
 

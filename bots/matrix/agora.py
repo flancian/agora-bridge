@@ -81,7 +81,8 @@ class AgoraPlugin(Plugin):
                 for wikilink in wikilinks:
                     self.log_evt(evt, wikilink)
 
-    @command.passive(r'#(\S+)', multiple=True)
+    # this uses a non-capturing group, ?:, for not responding to e.g. anchors in URLs (I didn't mind but people really didn't like that.)
+    @command.passive(r'(?:^|\s)#(\S+)', multiple=True)
     async def hashtag_handler(self, evt: MessageEvent, subs: List[Tuple[str, str]]) -> None:
         if evt.room_id in HASHTAG_OPT_OUT_ROOMS:
             self.log.info(f"not handling hashtag due to opted out room: {evt.room_id}")

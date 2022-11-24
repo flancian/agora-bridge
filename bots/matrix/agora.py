@@ -33,8 +33,11 @@ MATRIX_URL=f"https://develop.element.io"
 AGORA_ROOT=os.path.expanduser("~/agora")
 OUTPUT_DIR=f"{AGORA_ROOT}/stream/{AGORA_BOT_ID}"
 THREAD = RelationType("m.thread")
+# Probably should invest instead in not answering to *spurious* hashtags :)
 HASHTAG_OPT_OUT_ROOMS = [
-        '!zPwMsygFdoMjtdrDfo:matrix.org',  # moa party 
+        '!zPwMsygFdoMjtdrDfo:matrix.org', # moa party 
+        '!akkaZImONyQWKswVdt:matrix.org', # social coop tech chat
+        '!aIpzDTRzEEUkMCcBay:matrix.org', # social coop open chat
         ]
 
 class AgoraPlugin(Plugin):

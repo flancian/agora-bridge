@@ -66,7 +66,7 @@ parser.add_argument('--tweets', dest='tweets', type=argparse.FileType('r'), defa
 # 2022-09-25: this might not actually be a good idea :) better to use sqlite3 and cut it with the yaml? we have Markdown writing for humans.
 # TODO: add sqlite.
 parser.add_argument('--friends', dest='friends', type=argparse.FileType('r'), default='friends.yaml', help='The path to a graph (friends) in a yaml file, can be non-existent; we\'ll write there if we can.')
-parser.add_argument('--output-dir', dest='output_dir', action=common.readable_dir, required=False, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
+parser.add_argument('--output-dir', dest='output_dir', required=True, help='The path to a directory where data will be dumped as needed. Subdirectories per-user will be created.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--timeline', dest='timeline', action="store_true", help='Whether to process the timeline of the bot (if not specified we will only process direct mentions.')
 parser.add_argument('--follow', dest='follow', action="store_true", help='Whether to follow back (this burns Twitter API quota so it might be worth disabling at times).')

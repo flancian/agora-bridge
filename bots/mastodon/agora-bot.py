@@ -182,7 +182,7 @@ class AgoraBot(StreamListener):
             try:
                 with open(user_stream_filename, 'a') as note:
                     url = toot.url or toot.uri
-                    note.write(f"- [[{toot.created_at}]] @[[{username}]] {url}:\n  - {toot.content}\n")
+                    note.write(f"- [[{toot.created_at}]] @[[{username}]] (<a href='{url}'>link</a>):\n  - {toot.content}\n")
             except:
                 L.error("Couldn't log full post to note in user stream.")
                 return
@@ -344,13 +344,12 @@ def main():
     # try to clean up one old list to account for the one we'll create next.
     lists = mastodon.lists()
     try:
-        l = lists[0]
-        L.info(f"trying to clean up an old list: {l}, {l['id']}.")
-        mastodon.list_delete(l['id'])
-        L.info(f"clean up succeeded.")
+        for l in lists[:-5]:
+            L.info(f"trying to clean up an old list: {l}, {l['id']}.")
+            mastodon.list_delete(l['id'])
+            L.info(f"clean up succeeded.")
     except:
         L.info("couldn't clean up list.")
-        L.error(f"list: {l['id']})")
 
     try:
         mastodon.list_accounts_add(watching, followers)

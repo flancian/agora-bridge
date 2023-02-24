@@ -383,8 +383,9 @@ def main():
     # it would be nice to get rid of lists if we can.
     L.info('trying to stream user.')
     mastodon.stream_user(bot, run_async=True, reconnect_async=True)
-    L.info('trying to stream list.')
-    mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
+    # I don't think we need this really. Trying without it /shrug
+    # L.info('trying to stream list.')
+    # mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
     L.info('now streaming.')
     while True:
         time.sleep(3600 * 24)

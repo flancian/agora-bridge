@@ -339,6 +339,7 @@ def main():
 
     bot = AgoraBot(mastodon, bot_username)
     followers = mastodon.account_followers(mastodon.me().id, limit=80)
+    # Now unused.
     watching = get_watching(mastodon)
 
     # try to clean up one old list to account for the one we'll create next.
@@ -383,8 +384,9 @@ def main():
     # it would be nice to get rid of lists if we can.
     L.info('trying to stream user.')
     mastodon.stream_user(bot, run_async=True, reconnect_async=True)
-    L.info('trying to stream list.')
-    mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
+    # I don't think we need this really. Trying without it /shrug
+    # L.info('trying to stream list.')
+    # mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
     L.info('now streaming.')
     while True:
         time.sleep(3600 * 24)

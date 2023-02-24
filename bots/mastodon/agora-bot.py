@@ -254,11 +254,11 @@ class AgoraBot(StreamListener):
     def handle_hashtag(self, status, match=None):
         L.info(f'handling at least one hashtag: {status.content}, {match}')
         user = status['account']['acct']
-        if 'bmann' in user:
+        if 'bmann' in user or self.is_mentioned_in(user, 'opt out'):
             L.info(f'Opting out user {user} from hashtag handling.')
             return True 
-        if status['reblog']:
-            L.info(f'Not handling boost.')
+        if status['reblog'] and not self.is_mentioned_in(user, 'opt in'):
+            L.info(f'Not handling boost from non-opted-in user.')
             return True
         hashtags = HASHTAG_RE.findall(status.content)
         entities = uniq(hashtags)

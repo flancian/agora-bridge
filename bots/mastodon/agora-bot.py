@@ -338,7 +338,7 @@ def main():
     bot_username = f"{config['user']}@{config['instance']}"
 
     bot = AgoraBot(mastodon, bot_username)
-    followers = mastodon.account_followers(mastodon.me().id)
+    followers = mastodon.account_followers(mastodon.me().id, limit=80)
     watching = get_watching(mastodon)
 
     # try to clean up one old list to account for the one we'll create next.
@@ -359,21 +359,21 @@ def main():
         print(e)
 
     for user in followers:
-        L.info(f'following back {user.acct}')
+        L.info(f'trying to follow back {user.acct}')
         try:
             mastodon.account_follow(user.id)
         except MastodonAPIError:
             pass
 
         if args.catch_up:
-            L.info("trying to catch up with any missed toots for user.")
+            L.info("trying to catch up with any missed toots for user {user.acct}.")
             # the mastodon API... sigh.
             # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
             #   (this might be a limitation of botsin.space?)
             # mastodon.list_timeline() looked promising but always comes back empty with no reason.
             # so we need to iterate per-user in the end. should be OK.
             L.info(f'fetching latest toots by user {user.acct}')
-            statuses = mastodon.account_statuses(user['id'])
+            statuses = mastodon.account_statuses(user['id'], limit=40)
             for status in statuses:
                 # this should handle deduping, so it's safe to always try to reply.
                 bot.handle_update(status)

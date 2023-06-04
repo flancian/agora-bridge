@@ -182,7 +182,7 @@ class AgoraBot(StreamListener):
             try:
                 with open(user_stream_filename, 'a') as note:
                     url = toot.url or toot.uri
-                    note.write(f"- [[{toot.created_at}]] @[[{username}]] {url}:\n  - {toot.content}\n")
+                    note.write(f"- [[{toot.created_at}]] @[[{username}]] (<a href='{url}'>link</a>):\n  - {toot.content}\n")
             except:
                 L.error("Couldn't log full post to note in user stream.")
                 return
@@ -254,11 +254,11 @@ class AgoraBot(StreamListener):
     def handle_hashtag(self, status, match=None):
         L.info(f'handling at least one hashtag: {status.content}, {match}')
         user = status['account']['acct']
-        if 'bmann' in user:
+        if 'bmann' in user or self.is_mentioned_in(user, 'opt out'):
             L.info(f'Opting out user {user} from hashtag handling.')
             return True 
-        if status['reblog']:
-            L.info(f'Not handling boost.')
+        if status['reblog'] and not self.is_mentioned_in(user, 'opt in'):
+            L.info(f'Not handling boost from non-opted-in user.')
             return True
         hashtags = HASHTAG_RE.findall(status.content)
         entities = uniq(hashtags)
@@ -338,19 +338,19 @@ def main():
     bot_username = f"{config['user']}@{config['instance']}"
 
     bot = AgoraBot(mastodon, bot_username)
-    followers = mastodon.account_followers(mastodon.me().id)
+    followers = mastodon.account_followers(mastodon.me().id, limit=80)
+    # Now unused.
     watching = get_watching(mastodon)
 
     # try to clean up one old list to account for the one we'll create next.
     lists = mastodon.lists()
     try:
-        l = lists[0]
-        L.info(f"trying to clean up an old list: {l}, {l['id']}.")
-        mastodon.list_delete(l['id'])
-        L.info(f"clean up succeeded.")
+        for l in lists[:-5]:
+            L.info(f"trying to clean up an old list: {l}, {l['id']}.")
+            mastodon.list_delete(l['id'])
+            L.info(f"clean up succeeded.")
     except:
         L.info("couldn't clean up list.")
-        L.error(f"list: {l['id']})")
 
     try:
         mastodon.list_accounts_add(watching, followers)
@@ -360,21 +360,21 @@ def main():
         print(e)
 
     for user in followers:
-        L.info(f'following back {user.acct}')
+        L.info(f'trying to follow back {user.acct}')
         try:
             mastodon.account_follow(user.id)
         except MastodonAPIError:
             pass
 
         if args.catch_up:
-            L.info("trying to catch up with any missed toots for user.")
+            L.info("trying to catch up with any missed toots for user {user.acct}.")
             # the mastodon API... sigh.
             # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
             #   (this might be a limitation of botsin.space?)
             # mastodon.list_timeline() looked promising but always comes back empty with no reason.
             # so we need to iterate per-user in the end. should be OK.
             L.info(f'fetching latest toots by user {user.acct}')
-            statuses = mastodon.account_statuses(user['id'])
+            statuses = mastodon.account_statuses(user['id'], limit=40)
             for status in statuses:
                 # this should handle deduping, so it's safe to always try to reply.
                 bot.handle_update(status)
@@ -384,8 +384,9 @@ def main():
     # it would be nice to get rid of lists if we can.
     L.info('trying to stream user.')
     mastodon.stream_user(bot, run_async=True, reconnect_async=True)
-    L.info('trying to stream list.')
-    mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
+    # I don't think we need this really. Trying without it /shrug
+    # L.info('trying to stream list.')
+    # mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
     L.info('now streaming.')
     while True:
         time.sleep(3600 * 24)

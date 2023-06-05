@@ -18,15 +18,15 @@
 #
 # To then run an Agora Bridge interactively based directly on the upstream container on port 5017:
 #
-# $ docker run -it -p 5018:5018 -v ${PWD}/agora:/home/agora/agora:Z -u agora agora
+# $ docker run -it -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora agora-bridge
 #
 # To run the Agora Bridge detached (serving mode): 
 #
-# $ docker run -dt -p 5018:5018 -v ${PWD}/agora:/home/agora/agora:Z -u agora agora
+# $ docker run -dt -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora agora-bridge
 #
 # To run the reference Agora Bridge directly from upstream packages, skipping building:
 #
-# $ docker run -dt -p 5018:5018 -v ${PWD}/agora:/home/agora/agora:Z -u agora git.coopcloud.tech/flancian/agora-bridge
+# $ docker run -dt -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora git.coopcloud.tech/flancian/agora-bridge
 #
 # Enjoy!
 
@@ -40,7 +40,7 @@ USER root
 RUN apt-get update
 RUN apt-get install -y git python3 python3-pip npm
 RUN pip3 install poetry
-RUN groupadd -r agora -g 1001 && useradd -u 1001 -r -g agora -s /bin/bash -c "Agora" agora
+RUN groupadd -r agora -g 1000 && useradd -u 1000 -r -g agora -s /bin/bash -c "Agora" agora
 RUN mkdir -p /home/agora && chown -R agora:agora /home/agora
 
 WORKDIR /home/agora
@@ -60,9 +60,6 @@ WORKDIR /home/agora/agora-bridge
 RUN poetry lock
 RUN poetry install
 EXPOSE 5018
-
-# This is where the Agora root repository should be mounted in the container.
-WORKDIR /home/agora/agora
 
 # This should probably be ./run-prod.sh plus nginx.
 # But perhaps we want to move on to [[docker compose]] for that?

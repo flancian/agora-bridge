@@ -246,6 +246,12 @@ class AgoraBot(StreamListener):
         if status['reblog']:
             L.info(f'Not handling boost.')
             return True
+
+        # We want to only reply to accounts that follow us.
+        user = status['account']['acct']
+        if not user in self.mastodon.account_followers(self.mastodon.me().id):
+            return True
+
         wikilinks = WIKILINK_RE.findall(status.content)
         entities = uniq(wikilinks)
         msg = self.build_reply(status, entities)
@@ -254,6 +260,12 @@ class AgoraBot(StreamListener):
     def handle_hashtag(self, status, match=None):
         L.info(f'handling at least one hashtag: {status.content}, {match}')
         user = status['account']['acct']
+
+        # We want to only reply to accounts that follow us.
+        if not user in self.mastodon.account_followers(self.mastodon.me().id):
+            return True
+
+        # These users have opted out of hashtag handling.
         if 'bmann' in user or self.is_mentioned_in(user, 'opt out'):
             L.info(f'Opting out user {user} from hashtag handling.')
             return True 
@@ -304,6 +316,11 @@ class AgoraBot(StreamListener):
         L.info('Got a follow!')
         mastodon.account_follow(notification.account)
 
+    def handle_unfollow(self, notification):
+        """Try to handle live unfollows of [[agora bot]]."""
+        L.info('Got an unfollow!')
+        mastodon.account_follow(notification.account)
+
     def on_notification(self, notification):
         # we get this for explicit mentions.
         self.last_read_notification = notification.id
@@ -311,6 +328,8 @@ class AgoraBot(StreamListener):
             self.handle_mention(notification.status)
         elif notification.type == 'follow':
             self.handle_follow(notification.status)
+        elif notification.type == 'unfollow':
+            self.handle_unfollow(notification.status)
         else:
             L.info(f'received unhandled notification type: {notification.type}')
 

@@ -108,7 +108,7 @@ class AgoraBot(StreamListener):
         if status.mentions:
             # if other people are mentioned in the thread, only at mention them if they also follow us.
             # see https://social.coop/@flancian/108153868738763998 for reasoning.
-            followers = [x['acct'] for x in self.mastodon.account_followers(self.mastodon.me().id)]
+            followers = [x['acct'] for x in self.get_followers()]
             for mention in status.mentions:
                 if mention['acct'] in followers:
                     mentions += f"@{mention['acct']} "
@@ -241,15 +241,32 @@ class AgoraBot(StreamListener):
         else:
             L.info("-> not replying due to failed or redundant logging, skipping to avoid duplicates.")
 
+    def get_followers(self):
+        # First batching method, we will probably need more of these :)
+        batch = self.mastodon.account_followers(self.mastodon.me().id, limit=80)
+        followers = []
+        while batch:
+            followers += batch
+            batch = self.mastodon.fetch_next(batch)
+        return followers
+
+    def is_following(self, user):
+        following_accounts = [f['acct'] for f in self.get_followers()]
+        if user not in following_accounts:
+            L.info(f"account {user} not in followers: {following_accounts}.")
+            return False
+        return True
+
     def handle_wikilink(self, status, match=None):
         L.info(f'handling at least one wikilink: {status.content}, {match}')
+
         if status['reblog']:
             L.info(f'Not handling boost.')
             return True
 
         # We want to only reply to accounts that follow us.
         user = status['account']['acct']
-        if not user in self.mastodon.account_followers(self.mastodon.me().id):
+        if not self.is_following(user):
             return True
 
         wikilinks = WIKILINK_RE.findall(status.content)
@@ -261,8 +278,13 @@ class AgoraBot(StreamListener):
         L.info(f'handling at least one hashtag: {status.content}, {match}')
         user = status['account']['acct']
 
+        # Update (2023-07-19): We want to only reply hashtag posts to accounts that opted in.
+        if not self.is_mentioned_in(user, 'opt in'):
+            return True
+
         # We want to only reply to accounts that follow us.
-        if not user in self.mastodon.account_followers(self.mastodon.me().id):
+        user = status['account']['acct']
+        if not self.is_following(user):
             return True
 
         # These users have opted out of hashtag handling.
@@ -357,8 +379,8 @@ def main():
     bot_username = f"{config['user']}@{config['instance']}"
 
     bot = AgoraBot(mastodon, bot_username)
-    followers = mastodon.account_followers(mastodon.me().id, limit=80)
-    # Now unused.
+    followers = bot.get_followers()
+    # Now unused?
     watching = get_watching(mastodon)
 
     # try to clean up one old list to account for the one we'll create next.

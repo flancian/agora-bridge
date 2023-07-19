@@ -386,7 +386,7 @@ def main():
             pass
 
         if args.catch_up:
-            L.info("trying to catch up with any missed toots for user {user.acct}.")
+            L.info(f"trying to catch up with any missed toots for user {user.acct}.")
             # the mastodon API... sigh.
             # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
             #   (this might be a limitation of botsin.space?)

@@ -117,3 +117,4 @@ bots/twitter/jodorowsky
 bots/twitter/tweets.yaml.bak
 /node_modules
 garden.db
+/.vscode

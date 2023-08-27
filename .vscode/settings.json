@@ -1,0 +1,11 @@
+{
+  "sqltools.useNodeRuntime": true,
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "driver": "SQLite",
+      "name": "gardeb",
+      "database": "\\\\wsl.localhost\\Ubuntu\\home\\vera\\agora-bridge\\garden.db"
+    }
+  ]
+}

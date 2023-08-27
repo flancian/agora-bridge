@@ -41,9 +41,10 @@ async function processFolder(user) {
         current_sha = current_sha[0].last_sha.toString().trim()
         console.log({ current_sha })
         let output = execSync(`git --git-dir=${user_path}/.git diff --name-only ${current_sha} @`).toString()
-        files = output.split("\n").filter((name) => name != "").map(name => path.join(user_path, name) != "")
+        files = output.split("\n").filter((name) => name != "")
         DB.run("update shas set last_sha = ? where user = ?", sha, user)
     }
+    console.log({ files })
     if (current_sha.length == 0) {
         DB.run("insert into shas values (?,?)", user, sha)
         files = fs.readdirSync(user_path);
@@ -51,6 +52,7 @@ async function processFolder(user) {
     }
     // throw new Error(files)
     for (const file of files) {
+        console.log({ file })
         let ext = file.split('.').pop();
         if (ext !== "md") continue
         let title = file.replace(/\.[^/.]+$/, "").split("/").pop().toLowerCase()
@@ -65,8 +67,9 @@ async function processFile(file, title, user) {
     let subnode = { title, user, body, links, updated }
     console.log(subnode)
 
-    DB.run("insert into subnodes values (?,?,?,?,?)", [subnode.title, subnode.user, subnode.body, "[]", subnode.updated], ({ err }) => {
-        if (err) {
+    DB.run("insert into subnodes values (?,?,?,?,?)", [subnode.title, subnode.user, subnode.body, "[]", subnode.updated], (resp) => {
+        console.log({ resp })
+        if (resp.err) {
             console.log("Error inserting subnode, trying update: ", e.message)
             DB.run("update subnodes set body = ?, links = ?, updated = ? where title = ? and user = ?", subnode.body, JSON.stringify(subnode.links), subnode.updated, subnode.title, subnode.user)
 

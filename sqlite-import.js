@@ -67,11 +67,10 @@ async function processFile(file, title, user) {
     let subnode = { title, user, body, links, updated }
     console.log(subnode)
 
-    DB.run("insert into subnodes values (?,?,?,?,?)", [subnode.title, subnode.user, subnode.body, "[]", subnode.updated], (resp) => {
-        console.log({ resp })
-        if (resp.err) {
-            console.log("Error inserting subnode, trying update: ", e.message)
-            DB.run("update subnodes set body = ?, links = ?, updated = ? where title = ? and user = ?", subnode.body, JSON.stringify(subnode.links), subnode.updated, subnode.title, subnode.user)
+    DB.run("insert into subnodes values (?,?,?,?,?)", [subnode.title, subnode.user, subnode.body, "[]", subnode.updated], (err) => {
+        if (err) {
+            console.log("Skipping inserting subnode, trying update: ", err.message)
+            DB.run("update subnodes set body = ? where title = ? and user = ?", [subnode.body, subnode.title, subnode.user], JSON.stringify(subnode.links), subnode.updated, subnode.title, subnode.user)
 
         }
     })

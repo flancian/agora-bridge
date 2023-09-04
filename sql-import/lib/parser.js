@@ -54,7 +54,7 @@ export function pushes(markdown) {
         let title = regex.exec(e.outerHTML)[1]
 
         /** @type {PushItem} */
-        let push = { title, markdown: e.outerHTML }
+        let push = { title, markdown: toMarkdown(e.outerHTML) }
         return push
     })
 

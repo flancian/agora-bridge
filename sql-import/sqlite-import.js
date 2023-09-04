@@ -1,4 +1,5 @@
-import { processFolder } from 'lib/files.js'
+import { processFolder } from './lib/files.js'
+import fs from 'fs'
 
 const GARDEN_DIR = process.env.GARDEN_DIR
 

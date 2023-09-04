@@ -1,13 +1,13 @@
 {
-  "name": "agora-bridge",
-  "version": "1.0.0",
-  "description": "This repository includes a set of scripts and utilities to connect the Agora (https://anagora.org/go/agora) with the greater internet with a focus on personal knowledge graphs, the semantic web and social platforms.",
+  "name": "sqlite-import",
+  "version": "0.1.0",
+  "description": "import folders into sqlite database",
   "main": "sqlite-import.js",
   "scripts": {
     "test": "vitest"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "V",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "jquery": "^3.7.1",

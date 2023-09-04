@@ -1,8 +1,7 @@
-import { exec, execSync } from "node:child_process"
+import { execSync } from "node:child_process"
 import fs from "fs"
 import path from "node:path"
 import sqlite from 'sqlite3'
-import util from "util"
 
 
 const GARDEN_DIR = process.env.GARDEN_DIR

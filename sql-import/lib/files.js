@@ -122,7 +122,7 @@ export async function processFolder(user) {
             }
         }
     }
-    await Subnode.bulkCreate(subnodes, { updateOnDuplicate: ["title", "user", "body", "links", "pushes", "updated_at"] })
+    await Subnode.bulkCreate(subnodes, { updateOnDuplicate: ["title", "user", "body", "links", "pushes"] })
 }
 /**
  * Process a file and insert or update subnode in the database.

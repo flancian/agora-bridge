@@ -19,10 +19,7 @@ export const Subnode = seq.define("Subnode", {
     },
     pushes: {
         type: DataTypes.TEXT
-    },
-    updated_at: {
-        type: DataTypes.DATE
-    },
+    }
 
 }, {
     tableName: "subnodes",

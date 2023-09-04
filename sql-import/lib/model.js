@@ -5,9 +5,11 @@ const seq = new Sequelize({ dialect: "sqlite", storage: GARDEN_DB, logging: cons
 export const Subnode = seq.define("Subnode", {
     title: {
         type: DataTypes.STRING,
+        unique: 'user_title',
     },
     user: {
         type: DataTypes.STRING,
+        unique: 'user_title',
     },
     body: {
         type: DataTypes.TEXT,
@@ -24,7 +26,11 @@ export const Subnode = seq.define("Subnode", {
 
 }, {
     tableName: "subnodes",
-
+    uniqueKeys: {
+        user_title: {
+            fields: ["user", "title"]
+        }
+    }
 })
 
 export const Sha = seq.define("Sha", {

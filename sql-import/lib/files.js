@@ -53,7 +53,7 @@ export async function processFolder(user) {
     let last_sha = ""
     // Get the last stored SHA for the user
     let sha = await Sha.findOne({ where: { user } })
-    if (sha) last_sha = sha.last_sha
+    if (sha) last_sha = sha.last_sha.toString().trim()
 
     // Initialize an empty array for the files
     let files = []

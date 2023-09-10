@@ -4,9 +4,10 @@
   "description": "import folders into sqlite database",
   "main": "sqlite-import.js",
   "scripts": {
-    "test": "vitest"
+    "test": "vitest",
+    "import": "node sqlite-import.js"
   },
-  "author": "V",
+  "author": "github.com/codegod100",
   "license": "MIT",
   "type": "module",
   "dependencies": {

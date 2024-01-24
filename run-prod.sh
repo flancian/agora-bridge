@@ -17,6 +17,9 @@ echo "If this doesn't work, install poetry and run 'poetry install' as per READM
 # This shouldn't be needed but it is when running as a systemd service for some reason.
 export PATH=$HOME/.local/bin:${PATH}
 
+# Clean up lock files.
+./clean.sh
+
 # Try to push as well as pull to update social media activity upstream if we have access :)
 ./push.sh &
 

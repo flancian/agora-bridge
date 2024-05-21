@@ -21,7 +21,7 @@ args = parser.parse_args()
 
 def dump(playlist):
     URL_BASE="https://www.youtube.com/playlist?list="
-    PLAYLIST="PLui6Eyny-Uzyp5P3Vcuv5qCHQOC8W6grN"
+    PLAYLIST=args.playlist[0]
     from pytube import Playlist
     p = Playlist(URL_BASE + PLAYLIST)
     print(f"- a playlist.\n  - #go {URL_BASE}{PLAYLIST}")

@@ -5,7 +5,8 @@ import logging
 import re
 import yaml
 
-from atproto import Client
+# - #go https://github.com/MarshalX/atproto
+from atproto import AtUri, Client, models
 
 parser = argparse.ArgumentParser(description='Agora Bot for Bluesky (atproto).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -37,32 +38,36 @@ def main():
     # post = client.send_post('Hello world! This is the first programmatic post of the Agora of Flancia in Bluesky :)')
     # print(post)
 
+    me = client.resolve_handle(config['user'])
     followers = client.get_followers(config['user'])['followers']
 
+    # Try to get mutuals
+    mutuals = set()
     for follower in followers:
         L.info(f'trying to follow back {follower.handle}')
         client.follow(follower.did)
 
-    return
-    # dead code follows
+        # L.info(f"trying to catch up with any missed posts for user {follower.handle}.")
+        for following in client.get_follows(follower.did, limit=100):
+            # ?
+            if following[0] == 'follows':
+                for follow in following[1]:
+                    # L.info(f'{follow.did}')
+                    if follow.did == me.did:
+                        # Ahoy matey!
+                        L.info(f'{follow.did} follows us!')
+                        mutuals.add(follower.did)
+                    
+    L.info(f'-> Found mutuals: {mutuals}')
 
-    bot = AgoraBot()
-    followers = bot.get_followers()
-    # Now unused?
-    watching = get_watching(mastodon)
+    for mutual_did in mutuals:
+        L.info(f'Processing posts for {mutual_did}...')
+        posts = client.app.bsky.feed.post.list(mutual_did, limit=100)
+        for uri, post in posts.records.items():
+            if WIKILINK_RE.match(post.text):
+                L.info(f'\nSaw wikilink at {uri}:\n{post.text}\n--\n')
 
-    if args.catch_up:
-        L.info(f"trying to catch up with any missed toots for user {user.acct}.")
-        # the mastodon API... sigh.
-        # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
-        #   (this might be a limitation of botsin.space?)
-        # mastodon.list_timeline() looked promising but always comes back empty with no reason.
-        # so we need to iterate per-user in the end. should be OK.
-        L.info(f'fetching latest toots by user {user.acct}')
-        statuses = mastodon.account_statuses(user['id'], limit=40)
-        for status in statuses:
-            # this should handle deduping, so it's safe to always try to reply.
-            bot.handle_update(status)
+    # Much more goes here :)
 
 if __name__ == "__main__":
     main()

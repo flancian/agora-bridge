@@ -3,6 +3,7 @@
 import argparse
 import logging
 import re
+import urllib
 import yaml
 
 # - #go https://github.com/MarshalX/atproto
@@ -25,6 +26,24 @@ if args.verbose:
     L.setLevel(logging.DEBUG)
 else:
     L.setLevel(logging.INFO)
+
+def uniq(l):
+    # also orders, because actually it works better.
+    # return list(OrderedDict.fromkeys(l))
+    # only works for hashable items
+    return sorted(list(set(l)), key=str.casefold)
+
+def build_reply(entities):
+    lines = []
+    # always at-mention at least the original author.
+    for entity in entities:
+        path = urllib.parse.quote_plus(entity)
+        lines.append(f'https://anagora.org/{path}')
+    msg = '\n'.join(lines)
+    return msg
+
+def maybe_reply(uri, reply):
+    pass
 
 def main():
     try:
@@ -57,15 +76,20 @@ def main():
                         # Ahoy matey!
                         L.info(f'{follow.did} follows us!')
                         mutuals.add(follower.did)
-                    
+
     L.info(f'-> Found mutuals: {mutuals}')
 
     for mutual_did in mutuals:
         L.info(f'Processing posts for {mutual_did}...')
         posts = client.app.bsky.feed.post.list(mutual_did, limit=100)
         for uri, post in posts.records.items():
-            if WIKILINK_RE.match(post.text):
-                L.info(f'\nSaw wikilink at {uri}:\n{post.text}\n--\n')
+            wikilinks = WIKILINK_RE.findall(post.text)
+            if wikilinks:
+                entities = uniq(wikilinks)
+                L.info(f'\nSaw wikilinks at {uri}:\n{post.text}\n')
+                msg = build_reply(entities)
+                L.info(f'\nWould respond with:\n{msg}\n--\n')
+                maybe_reply(uri, msg)
 
     # Much more goes here :)
 

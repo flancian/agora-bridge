@@ -135,30 +135,45 @@ class AgoraBot(object):
     def get_followers(self):
         return self.client.get_followers(self.config['user'])['followers']
 
-    def get_mutuals(self):
-        # set of DIDs.
-        mutuals = set()
-        for follower in self.get_followers():
+    def get_follows(self):
+        return self.client.get_follows(self.config['user'])['follows']
 
-            # L.info(f"trying to catch up with any missed posts for user {follower.handle}.")
-            # TODO: add cursor handling to work around limits (this needs to happen in several other places probably).
-            for following in self.client.get_follows(follower.did, limit=100):
-                # ?
-                if following[0] == 'follows':
-                    for follow in following[1]:
-                        # L.info(f'{follow.did}')
-                        if follow.did == self.me.did:
-                            # Ahoy matey!
-                            L.info(f'{follow.did} follows us!')
-                            mutuals.add(follower.did)
+    def get_mutuals(self):
+        # Note we'll return a set of DIDs (type hints to the rescue? eventually... :))
+        mutuals = set()
+        follows = self.get_follows()
+        followers = self.get_followers()
+        for follower in followers: 
+            if follower.did in [f.did for f in follows]:
+                # Ahoy matey!
+                mutuals.add(follower.did)
+
+        # This is no longer needed but remains an example of working with cursors.
+        #    cursor = ''
+        #    # This work but it is quite inefficient to check for mutualness as some accounts follow *a lot* of people.
+        #    while True:
+        #        L.info(f'Processing following list for {follower.handle} with cursor {cursor}')
+        #        follows = self.client.get_follows(follower.did, limit=100, cursor=cursor)
+        #        for following in follows:
+        #            if following[0] == 'follows':
+        #                for follow in following[1]:
+        #                    # L.info(f'{follow.did}')
+        #                    if follow.did == self.me.did:
+        #                        # Ahoy matey!
+        #                        L.info(f'{follower.handle} follows us!')
+        #                        mutuals.add(follower.did)
+        #        cursor = follows.cursor
+        #        if not cursor:
+        #           break 
+
         return mutuals
 
     def follow_followers(self):
         for follower in self.get_followers():
             if follower.did in self.get_mutuals():
-                L.info(f'-> We already follow {follower.did}')
+                L.info(f'-> We already follow {follower.handle}')
             else:
-                L.info(f'-> Trying to follow back {follower.did}')
+                L.info(f'-> Trying to follow back {follower.handle}')
                 self.client.follow(follower.did)
 
     def catch_up(self):

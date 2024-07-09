@@ -24,6 +24,9 @@ HASHTAG_RE = re.compile(r'#<span>(\w+)</span>', re.IGNORECASE)
 # https://github.com/bluesky-social/atproto/discussions/2523
 URI_RE = re.compile(r'at://(.*?)/app.bsky.feed.post/(.*)', re.IGNORECASE)
 
+# Redundant, clean up!
+USERNAME = 'anagora.bsky.social'
+
 logging.basicConfig()
 L = logging.getLogger('agora-bot')
 if args.verbose:
@@ -69,47 +72,49 @@ def log_post(uri, post, entities):
     if not args.output_dir:
         return False
 
+    if not args.write:
+        L.info(f'Here we would log a link to {url} in nodes {entities}.')
+
     for node in entities:
-        if not args.write:
-            L.info(f'Here we would log a link to {url} in node {node}.')
-        else:
-            if ('/' in node):
-                # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
-                node = os.path.split(node)[-1]
+        if ('/' in node):
+            # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+            node = os.path.split(node)[-1]
 
-            # username
-            # TODO: update username.
-            bot_stream_dir = mkdir(os.path.join(args.output_dir, 'anagora.bsky.social'))
-            bot_stream_filename = os.path.join(bot_stream_dir, node + '.md')
+        # TODO: update username after refactoring.
+        bot_stream_dir = mkdir(os.path.join(args.output_dir, USERNAME))
+        bot_stream_filename = os.path.join(bot_stream_dir, node + '.md')
 
-            # dedup logic.
-            try:
-                with open(bot_stream_filename, 'r') as note:
-                    note = note.read()
-                    L.info(f"In note: {note}.")
-                    if note and url in note:
-                        L.info("Post already logged to note.")
-                        return False
-                    else:
-                        L.info("Post will be logged to note.")
-            except FileNotFoundError:
-                pass
+        # dedup logic.
+        try:
+            with open(bot_stream_filename, 'r') as note:
+                note = note.read()
+                L.info(f"In note: {note}.")
+                if note and url in note:
+                    L.info("Post already logged to note.")
+                    return False
+                else:
+                    L.info("Post will be logged to note.")
+        except FileNotFoundError:
+            pass
 
-            # try to append.
-            try:
-                with open(bot_stream_filename, 'a') as note:
-                    note.write(f"- [[{post.author.handle}]]: {url}\n")
-            except: 
-                L.error("Couldn't log post to note.")
-                return False
+        # try to append.
+        try:
+            with open(bot_stream_filename, 'a') as note:
+                note.write(f"- [[{post.author.handle}]]: {url}\n")
+        except:
+            L.error("Couldn't log post to note.")
+            return False
 
     return True
     
 def maybe_reply(client, uri, post, msg, entities):
     L.info(f'Would reply to {post} with {msg.build_text()}')
     ref = models.create_strong_ref(post)
-    if log_post(uri, post, entities) and args.write:
-        client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
+    if args.write:
+        # Only actually write if we haven't written before (from the PoV of the current agora).
+        # log_post should return false if we have already written a link to node previously.
+        if log_post(uri, post, entities):
+            client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
     else:
         L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
 

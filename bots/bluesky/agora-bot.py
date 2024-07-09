@@ -60,7 +60,6 @@ class AgoraBot(object):
         self.client.login(self.config['user'], self.config['password'])
 
         self.me = self.client.resolve_handle(self.config['user'])
-        self.followers = self.client.get_followers(self.config['user'])['followers']
 
     def build_reply(self, entities):
         # always at-mention at least the original author.
@@ -106,14 +105,16 @@ class AgoraBot(object):
                         L.info("Post already logged to note.")
                         return False
                     else:
-                        L.info("Post will be logged to note.")
+                        if args.write:
+                            L.info("Post will be logged to note.")
             except FileNotFoundError:
                 pass
 
             # try to append.
             try:
-                with open(bot_stream_filename, 'a') as note:
-                    note.write(f"- [[{post.author.handle}]]: {url}\n")
+                if args.write:
+                    with open(bot_stream_filename, 'a') as note:
+                        note.write(f"- [[{post.indexed_at}]] @[[{post.author.handle}]]: {url}\n")
             except:
                 L.error("Couldn't log post to note.")
                 return False
@@ -131,9 +132,13 @@ class AgoraBot(object):
         else:
             L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
 
+    def get_followers(self):
+        return self.client.get_followers(self.config['user'])['followers']
+
     def get_mutuals(self):
+        # set of DIDs.
         mutuals = set()
-        for follower in self.followers:
+        for follower in self.get_followers():
 
             # L.info(f"trying to catch up with any missed posts for user {follower.handle}.")
             # TODO: add cursor handling to work around limits (this needs to happen in several other places probably).
@@ -149,9 +154,12 @@ class AgoraBot(object):
         return mutuals
 
     def follow_followers(self):
-        for follower in self.followers:
-            L.info(f'-> Trying to follow back {follower.did}')
-            self.client.follow(follower.did)
+        for follower in self.get_followers():
+            if follower.did in self.get_mutuals():
+                L.info(f'-> We already follow {follower.did}')
+            else:
+                L.info(f'-> Trying to follow back {follower.did}')
+                self.client.follow(follower.did)
 
     def catch_up(self):
         for mutual_did in self.get_mutuals():

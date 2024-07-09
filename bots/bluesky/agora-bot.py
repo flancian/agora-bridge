@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import re
+import time
 import subprocess
 import urllib
 import yaml
@@ -23,9 +24,6 @@ WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 HASHTAG_RE = re.compile(r'#<span>(\w+)</span>', re.IGNORECASE)
 # https://github.com/bluesky-social/atproto/discussions/2523
 URI_RE = re.compile(r'at://(.*?)/app.bsky.feed.post/(.*)', re.IGNORECASE)
-
-# Redundant, clean up!
-USERNAME = 'anagora.bsky.social'
 
 logging.basicConfig()
 L = logging.getLogger('agora-bot')
@@ -48,126 +46,142 @@ def mkdir(string):
             L.error(output.stderr)
     return os.path.abspath(string)
 
-def build_reply(entities):
-    lines = []
-    # always at-mention at least the original author.
-    text_builder = client_utils.TextBuilder()
-    for entity in entities:
-        path = urllib.parse.quote_plus(entity)
-        url = f'https://anagora.org/{path}'
-        text_builder.link(url, url)
-        text_builder.text('\n')
-    return text_builder
 
-def post_uri_to_url(uri):
-    base = 'https://bsky.app'
-    match = URI_RE.search(uri)
-    profile = match.group(1)
-    rkey = match.group(2)
-    return f'{base}/profile/{profile}/post/{rkey}'
 
-def log_post(uri, post, entities):
-    url = post_uri_to_url(uri)
+class AgoraBot(object):
 
-    if not args.output_dir:
-        return False
-
-    if not args.write:
-        L.info(f'Here we would log a link to {url} in nodes {entities}.')
-
-    for node in entities:
-        if ('/' in node):
-            # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
-            node = os.path.split(node)[-1]
-
-        # TODO: update username after refactoring.
-        bot_stream_dir = mkdir(os.path.join(args.output_dir, USERNAME))
-        bot_stream_filename = os.path.join(bot_stream_dir, node + '.md')
-
-        # dedup logic.
+    def __init__(self):
         try:
-            with open(bot_stream_filename, 'r') as note:
-                note = note.read()
-                L.info(f"In note: {note}.")
-                if note and url in note:
-                    L.info("Post already logged to note.")
-                    return False
-                else:
-                    L.info("Post will be logged to note.")
-        except FileNotFoundError:
-            pass
+            self.config = yaml.safe_load(args.config)
+        except yaml.YAMLError as e:
+            L.error(e)
 
-        # try to append.
-        try:
-            with open(bot_stream_filename, 'a') as note:
-                note.write(f"- [[{post.author.handle}]]: {url}\n")
-        except:
-            L.error("Couldn't log post to note.")
+        self.client = Client(base_url='https://bsky.social')
+        self.client.login(self.config['user'], self.config['password'])
+
+        self.me = self.client.resolve_handle(self.config['user'])
+        self.followers = self.client.get_followers(self.config['user'])['followers']
+
+    def build_reply(self, entities):
+        # always at-mention at least the original author.
+        text_builder = client_utils.TextBuilder()
+        for entity in entities:
+            path = urllib.parse.quote_plus(entity)
+            url = f'https://anagora.org/{path}'
+            text_builder.link(url, url)
+            text_builder.text('\n')
+        return text_builder
+
+    def post_uri_to_url(self, uri):
+        base = 'https://bsky.app'
+        match = URI_RE.search(uri)
+        profile = match.group(1)
+        rkey = match.group(2)
+        return f'{base}/profile/{profile}/post/{rkey}'
+
+    def log_post(self, uri, post, entities):
+        url = self.post_uri_to_url(uri)
+
+        if not args.output_dir:
             return False
 
-    return True
-    
-def maybe_reply(client, uri, post, msg, entities):
-    L.info(f'Would reply to {post} with {msg.build_text()}')
-    ref = models.create_strong_ref(post)
-    if args.write:
-        # Only actually write if we haven't written before (from the PoV of the current agora).
-        # log_post should return false if we have already written a link to node previously.
-        if log_post(uri, post, entities):
-            client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
-    else:
-        L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
+        if not args.write:
+            L.info(f'Here we would log a link to {url} in nodes {entities}.')
 
+        for node in entities:
+            if ('/' in node):
+                # for now, dump only to the last path fragment -- this yields the right behaviour in e.g. [[go/cat-tournament]]
+                node = os.path.split(node)[-1]
+
+            # TODO: update username after refactoring.
+            bot_stream_dir = mkdir(os.path.join(args.output_dir, self.config['user']))
+            bot_stream_filename = os.path.join(bot_stream_dir, node + '.md')
+
+            # dedup logic.
+            try:
+                with open(bot_stream_filename, 'r') as note:
+                    note = note.read()
+                    L.info(f"In note: {note}.")
+                    if note and url in note:
+                        L.info("Post already logged to note.")
+                        return False
+                    else:
+                        L.info("Post will be logged to note.")
+            except FileNotFoundError:
+                pass
+
+            # try to append.
+            try:
+                with open(bot_stream_filename, 'a') as note:
+                    note.write(f"- [[{post.author.handle}]]: {url}\n")
+            except:
+                L.error("Couldn't log post to note.")
+                return False
+
+        return True
+        
+    def maybe_reply(self, uri, post, msg, entities):
+        L.info(f'Would reply to {post} with {msg.build_text()}')
+        ref = models.create_strong_ref(post)
+        if args.write:
+            # Only actually write if we haven't written before (from the PoV of the current agora).
+            # log_post should return false if we have already written a link to node previously.
+            if self.log_post(uri, post, entities):
+                self.client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
+        else:
+            L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
+
+    def get_mutuals(self):
+        mutuals = set()
+        for follower in self.followers:
+
+            # L.info(f"trying to catch up with any missed posts for user {follower.handle}.")
+            # TODO: add cursor handling to work around limits (this needs to happen in several other places probably).
+            for following in self.client.get_follows(follower.did, limit=100):
+                # ?
+                if following[0] == 'follows':
+                    for follow in following[1]:
+                        # L.info(f'{follow.did}')
+                        if follow.did == self.me.did:
+                            # Ahoy matey!
+                            L.info(f'{follow.did} follows us!')
+                            mutuals.add(follower.did)
+        return mutuals
+
+    def follow_followers(self):
+        for follower in self.followers:
+            L.info(f'-> Trying to follow back {follower.did}')
+            self.client.follow(follower.did)
+
+    def catch_up(self):
+        for mutual_did in self.get_mutuals():
+            L.info(f'-> Processing posts by {mutual_did}...')
+            posts = self.client.app.bsky.feed.post.list(mutual_did, limit=100)
+            for uri, post in posts.records.items():
+                wikilinks = WIKILINK_RE.findall(post.text)
+                if wikilinks:
+                    entities = uniq(wikilinks)
+                    L.info(f'\nSaw wikilinks at {uri}:\n{post.text}\n')
+                    msg = self.build_reply(entities)
+                    L.info(f'\nWould respond with:\n{msg.build_text()}\n--\n')
+                    # atproto somehow needs this kind of post and not the... other?
+                    actual_post = self.client.get_posts([uri]).posts[0]
+                    self.maybe_reply(uri, actual_post, msg, entities)
 
 def main():
-    try:
-        config = yaml.safe_load(args.config)
-    except yaml.YAMLError as e:
-        L.error(e)
+    # How much to sleep between runs, in seconds (this may go away once we're using a subscription model?).
+    sleep = 60
 
-    client = Client(base_url='https://bsky.social')
-    client.login(config['user'], config['password'])
+    bot = AgoraBot()
 
-    # post = client.send_post('Hello world! This is the first programmatic post of the Agora of Flancia in Bluesky :)')
-    # print(post)
+    while True:
+        bot.follow_followers()
+        bot.catch_up()
 
-    me = client.resolve_handle(config['user'])
-    followers = client.get_followers(config['user'])['followers']
+        L.info(f'-> Sleeping for {sleep} seconds...')
+        time.sleep(sleep)
 
-    # Try to get mutuals
-    mutuals = set()
-    for follower in followers:
-        L.info(f'trying to follow back {follower.handle}')
-        client.follow(follower.did)
-
-        # L.info(f"trying to catch up with any missed posts for user {follower.handle}.")
-        for following in client.get_follows(follower.did, limit=100):
-            # ?
-            if following[0] == 'follows':
-                for follow in following[1]:
-                    # L.info(f'{follow.did}')
-                    if follow.did == me.did:
-                        # Ahoy matey!
-                        L.info(f'{follow.did} follows us!')
-                        mutuals.add(follower.did)
-
-    L.info(f'-> Found mutuals: {mutuals}')
-
-    for mutual_did in mutuals:
-        L.info(f'Processing posts for {mutual_did}...')
-        posts = client.app.bsky.feed.post.list(mutual_did, limit=100)
-        for uri, post in posts.records.items():
-            wikilinks = WIKILINK_RE.findall(post.text)
-            if wikilinks:
-                entities = uniq(wikilinks)
-                L.info(f'\nSaw wikilinks at {uri}:\n{post.text}\n')
-                msg = build_reply(entities)
-                L.info(f'\nWould respond with:\n{msg.build_text()}\n--\n')
-                # atproto somehow needs this kind of post and not the... other?
-                post2 = client.get_posts([uri]).posts[0]
-                maybe_reply(client, uri, post2, msg, entities)
-
-    # Much more goes here :)
+    # Much more goes here I guess :)
 
 if __name__ == "__main__":
     main()

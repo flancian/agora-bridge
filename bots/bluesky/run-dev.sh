@@ -3,4 +3,4 @@
 # . venv/bin/activate
 OUTPUT=$HOME/agora/stream/
 mkdir -p ${OUTPUT}
-poetry run ./agora-bot.py --config agora-bot.yaml --dry-run --output=${OUTPUT} $@
+poetry run ./agora-bot.py --config agora-bot.yaml --output=${OUTPUT} $@

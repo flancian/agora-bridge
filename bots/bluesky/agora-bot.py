@@ -6,14 +6,14 @@ import re
 import urllib
 import yaml
 
-# - #go https://github.com/MarshalX/atproto
-from atproto import AtUri, Client, models
+# #go https://github.com/MarshalX/atproto
+from atproto import Client, client_utils, models
 
 parser = argparse.ArgumentParser(description='Agora Bot for Bluesky (atproto).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--output-dir', dest='output_dir', required=True, help='The path to a directory where data will be dumped as needed. If it does not exist, we will try to create it.')
-parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
+parser.add_argument('--write', dest='write', action="store_true", help='Whether to actually post (default, when this is off, is dry run.')
 args = parser.parse_args()
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
@@ -36,14 +36,23 @@ def uniq(l):
 def build_reply(entities):
     lines = []
     # always at-mention at least the original author.
+    text_builder = client_utils.TextBuilder()
     for entity in entities:
         path = urllib.parse.quote_plus(entity)
-        lines.append(f'https://anagora.org/{path}')
-    msg = '\n'.join(lines)
-    return msg
+        url = f'https://anagora.org/{path}'
+        text_builder.link(url, url)
+        text_builder.text('\n')
+    return text_builder
 
-def maybe_reply(uri, reply):
-    pass
+def maybe_reply(client, uri, post, msg):
+    L.info(f'Would reply to {post} with {msg.build_text()}')
+    ref = models.create_strong_ref(post)
+    if args.write:
+        # client.send_post(msg, reply_to=post.reply)
+        client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
+    else:
+        L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
+
 
 def main():
     try:
@@ -88,8 +97,9 @@ def main():
                 entities = uniq(wikilinks)
                 L.info(f'\nSaw wikilinks at {uri}:\n{post.text}\n')
                 msg = build_reply(entities)
-                L.info(f'\nWould respond with:\n{msg}\n--\n')
-                maybe_reply(uri, msg)
+                L.info(f'\nWould respond with:\n{msg.build_text()}\n--\n')
+                post2 = client.get_posts([uri]).posts[0]
+                maybe_reply(client, uri, post2, msg)
 
     # Much more goes here :)
 

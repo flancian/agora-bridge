@@ -128,6 +128,8 @@ class AgoraBot(object):
             # Only actually write if we haven't written before (from the PoV of the current agora).
             # log_post should return false if we have already written a link to node previously.
             if self.log_post(uri, post, entities):
+                # This seems buggy when we're replying to messages in a thread / that are not the root message for some reason.
+                # TODO: fix.
                 self.client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
         else:
             L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')

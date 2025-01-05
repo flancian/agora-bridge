@@ -372,6 +372,7 @@ def main():
 
     # Set up Mastodon API.
     mastodon = Mastodon(
+        version_check_mode="none",
         access_token = config['access_token'],
         api_base_url = config['api_base_url'],
     )

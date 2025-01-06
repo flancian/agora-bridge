@@ -401,38 +401,43 @@ def main():
         print(f"watching: {watching}")
         print(e)
 
-    for user in followers:
-        L.info(f'trying to follow back {user.acct}')
-        try:
-            mastodon.account_follow(user.id)
-        except MastodonAPIError:
-            pass
-
-        if args.catch_up:
-            L.info(f"trying to catch up with any missed toots for user {user.acct}.")
-            # the mastodon API... sigh.
-            # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
-            #   (this might be a limitation of botsin.space?)
-            # mastodon.list_timeline() looked promising but always comes back empty with no reason.
-            # so we need to iterate per-user in the end. should be OK.
-            L.info(f'fetching latest toots by user {user.acct}')
-            statuses = mastodon.account_statuses(user['id'], limit=40)
-            for status in statuses:
-                # this should handle deduping, so it's safe to always try to reply.
-                bot.handle_update(status)
-
     # why do we have both? hmm.
     # TODO(flancian): look in commit history or try disabling one.
     # it would be nice to get rid of lists if we can.
     L.info('trying to stream user.')
+    # mastodon.stream_user(bot, run_async=True, reconnect_async=True)
     mastodon.stream_user(bot, run_async=True, reconnect_async=True)
     # I don't think we need this really. Trying without it /shrug
     # L.info('trying to stream list.')
     # mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
     L.info('now streaming.')
     while True:
-        time.sleep(3600 * 24)
-        L.info('[[agora mastodon bot]] is still alive.')
+        L.info('[[agora mastodon bot]] is alive, trying to catch up with new friends and lost posts.')
 
+        # YOLO -- working around a potential bug after the move to GoToSocial :)
+        followers = bot.get_followers()
+        for user in followers:
+            L.info(f'Trying to follow back {user.acct}')
+            try:
+                mastodon.account_follow(user.id)
+            except MastodonAPIError:
+                pass
+
+            if args.catch_up:
+                L.info(f"trying to catch up with any missed toots for user {user.acct}.")
+                # the mastodon API... sigh.
+                # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
+                #   (this might be a limitation of botsin.space?)
+                # mastodon.list_timeline() looked promising but always comes back empty with no reason.
+                # so we need to iterate per-user in the end. should be OK.
+                L.info(f'fetching latest toots by user {user.acct}')
+                statuses = mastodon.account_statuses(user['id'], limit=40)
+                for status in statuses:
+                    # this should handle deduping, so it's safe to always try to reply.
+                    bot.handle_update(status)
+
+        L.info('Sleeping...')
+        time.sleep(600)
+     
 if __name__ == "__main__":
     main()

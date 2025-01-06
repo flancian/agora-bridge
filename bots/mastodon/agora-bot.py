@@ -404,13 +404,20 @@ def main():
     # why do we have both? hmm.
     # TODO(flancian): look in commit history or try disabling one.
     # it would be nice to get rid of lists if we can.
-    L.info('trying to stream user.')
+
+    # as of 2025-01 and with the move to GoToSocial (social.agor.ai), streaming seems broken.
+    # suspecting GTS, for now we go back to polling/catching up.
+    # given that we know own the instance, I am fine bumping throttling limits and just going with this for now.
+
+    # # TODO: re-add?
+    # L.info('trying to stream user.')
     # mastodon.stream_user(bot, run_async=True, reconnect_async=True)
-    mastodon.stream_user(bot, run_async=True, reconnect_async=True)
-    # I don't think we need this really. Trying without it /shrug
+    # mastodon.stream_user(bot)
+    # L.info('now streaming.')
+
+    # We used to do lists -- maybe worth trying again with GTS?
     # L.info('trying to stream list.')
     # mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
-    L.info('now streaming.')
     while True:
         L.info('[[agora mastodon bot]] is alive, trying to catch up with new friends and lost posts.')
 
@@ -437,7 +444,7 @@ def main():
                     bot.handle_update(status)
 
         L.info('Sleeping...')
-        time.sleep(600)
+        time.sleep(30)
      
 if __name__ == "__main__":
     main()

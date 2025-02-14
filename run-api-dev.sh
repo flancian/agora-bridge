@@ -16,4 +16,7 @@
 echo "If this doesn't work, install poetry and run 'poetry install' as per README.md first."
 # This shouldn't be needed but it is when running as a systemd service for some reason.
 export PATH=$HOME/.local/bin:${PATH}
-poetry run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 1 --reset_only True
+
+export FLASK_APP=api
+export AGORA_CONFIG="DevelopmentConfig"
+poetry run flask run -h 0.0.0.0 -p 5018

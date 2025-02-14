@@ -7,7 +7,7 @@ maubot: 0.1.0
 id: org.anagora.agorabot
 
 # A PEP 440 compliant version string.
-version: 1.0.19
+version: 1.0.21
 
 # The SPDX license identifier for the plugin. https://spdx.org/licenses/
 # Optional, assumes all rights reserved if omitted.

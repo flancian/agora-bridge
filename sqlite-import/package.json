@@ -1,0 +1,22 @@
+{
+  "name": "sqlite-import",
+  "version": "0.1.0",
+  "description": "import folders into sqlite database",
+  "main": "sqlite-import.js",
+  "scripts": {
+    "test": "vitest",
+    "import": "node sqlite-import.js"
+  },
+  "author": "github.com/codegod100",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "jquery": "^3.7.1",
+    "jsdom": "^22.1.0",
+    "sequelize": "^6.32.1",
+    "showdown": "^2.1.0",
+    "sqlite3": "^5.1.6",
+    "turndown": "^7.1.2",
+    "vitest": "^0.34.3"
+  }
+}

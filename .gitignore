@@ -1,5 +1,6 @@
 config.py
 tags
+poetry.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -114,3 +115,6 @@ bots/twitter/.agora-bot.py.swp
 bots/twitter/.agora-bot.yaml.swp
 bots/twitter/jodorowsky
 bots/twitter/tweets.yaml.bak
+/node_modules
+garden.db
+/.vscode

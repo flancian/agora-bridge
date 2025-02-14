@@ -13,5 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-. venv/bin/activate 
-./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --reset True
+echo "If this doesn't work, install poetry and run 'poetry install' as per README.md first."
+# This shouldn't be needed but it is when running as a systemd service for some reason.
+export PATH=$HOME/.local/bin:${PATH}
+
+# Clean up lock files.
+./clean.sh
+
+# Try to push as well as pull to update social media activity upstream if we have access :)
+./push.sh &
+
+# Pull for the greater good! :)
+poetry run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --reset True

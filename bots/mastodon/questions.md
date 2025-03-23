@@ -1,0 +1,8 @@
+- Why does mastodon.account_statuses(user['id'], limit=40) seem to return only old messages suddenly?
+  - Maybe this is related to the migration to social.agor.ai? But if so, how did it ever work in testing?
+  - I need to check if there are parameters to specify I want to retrieve the latest toots first?
+  - Or just iterate to do "proper catchup"... hmm.
+- Reading Mastodon.py, the block list on `__api_request` looks interesting...
+  - Apparently I want to use min_id pagination, and not since_id (?).
+  - -> Trying the "while batch" approach like I did previously with get_followers.
+- Question for next time I try to do a Python code change offline: what's the best tool to make sure that syntax is fine in my script without actually running it (when I need connectivity for a run)? pylint or something in that space?

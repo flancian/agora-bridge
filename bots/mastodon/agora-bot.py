@@ -239,6 +239,15 @@ class AgoraBot(StreamListener):
             batch = self.mastodon.fetch_next(batch)
         return followers
 
+    def get_statuses(self, user):
+        # Added on [[2025-03-23]] to work around weird Mastodon bug with sorting, and it seems generally useful so...
+        batch = mastodon.account_statuses(user['id'], limit=40)
+        posts = []
+        while batch:
+            posts += batch
+            batch = self.mastodon.fetch_next(batch)
+        return posts
+
     def is_following(self, user):
         following_accounts = [f['acct'] for f in self.get_followers()]
         if user not in following_accounts:
@@ -427,8 +436,10 @@ def main():
                 # mastodon.list_timeline() looked promising but always comes back empty with no reason.
                 # so we need to iterate per-user in the end. should be OK.
                 L.info(f'fetching latest toots by user {user.acct}')
-                statuses = mastodon.account_statuses(user['id'], limit=40)
-                for status in statuses:
+                # as of [[2025-03-23]], I'm here trying to figure out why suddenly the Agora bot is not seeing new toots.
+                # maybe the ordering of toots is implementation-dependent and we're supposed to iterate/sort client side?
+                # looking into Mastodon.py, there's not much to this method beyond a wrapper that calls __api_request to /<id>/statuses...
+                for status in bot.get_statuses(user):
                     # this should handle deduping, so it's safe to always try to reply.
                     bot.handle_update(status)
 

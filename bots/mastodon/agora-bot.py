@@ -33,6 +33,7 @@ from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetwork
 # [[2022-11-17]]: changing approaches, bots should write by calling an Agora API; direct writing to disk was a hack.
 # common.py should have the methods to write resources to a node in any case.
 # (maybe direct writing to disk can remain as an option, as it's very simple and convenient if people are running local agoras?).
+# [[2025-03-23]]: drive by while I'm passing by here fixing a different thing -- I think I'm coming to terms with the fact that a lot of hacks I intend to fix will be permanent :) not saying that this is one, but if it is, so be it. Future Agoras will learn from our mistakes ;)
 import common
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
@@ -56,23 +57,6 @@ if args.verbose:
     L.setLevel(logging.DEBUG)
 else:
     L.setLevel(logging.INFO)
-
-def slugify(wikilink):
-    # As of 2022-07 or so we're not slugifying anymore, but rather quote_plusing.
-    # trying to keep it light here for simplicity, wdyt?
-    # c.f. util.py in [[agora server]].
-    # argh, this should really really be centralized/factored out, but the fact that we have two different repos makes this a bit harder than I'd like (without introducing cross-repo dependencies).
-    slug = (
-            wikilink.lower()
-            .strip()
-            .replace(',', ' ')
-            .replace("'", ' ')
-            .replace(';', ' ')
-            .replace(':', ' ')
-            .replace('  ', '-')
-            .replace(' ', '-')
-            )
-    return slug
 
 def uniq(l):
     # also orders, because actually it works better.
@@ -99,6 +83,8 @@ class AgoraBot(StreamListener):
         status = self.mastodon.status_reblog(id)
 
     def build_reply(self, status, entities):
+        # These could be made a lot more user friendly just by making the Agora bot return *anything* beyond just links and mentions!
+        # At least some greeting...?
         if random.random() < P_HELP:
             self.send_toot('If an Agora hears about a [[wikilink]] or #hashtag, it will try to resolve them for you and link your resources in the [[nodes]] or #nodes you mention.', status.id)
         lines = []
@@ -106,18 +92,20 @@ class AgoraBot(StreamListener):
         # always at-mention at least the original author.
         mentions = f"@{status['account']['acct']} "
         if status.mentions:
-            # if other people are mentioned in the thread, only at mention them if they also follow us.
-            # see https://social.coop/@flancian/108153868738763998 for reasoning.
-            followers = [x['acct'] for x in self.get_followers()]
+            # Some time in the past I wrote: if other people are mentioned in the thread, only at mention them if they also follow us.
+            # [[2025-03-23]]: honestly, as I'm rereading this code while on a long flight, I'm not sure this was a great idea.
+            # I see no strong reason to make an information-integrator and information-spreader like Agora bot less effective by dropping people from threads.
+            # see https://social.coop/@flancian/108153868738763998 for initial reasoning -- but as I'm standing here I'm leaning towards disabling this.
+            #
+            # followers = [x['acct'] for x in self.get_followers()]
             for mention in status.mentions:
-                if mention['acct'] in followers:
-                    mentions += f"@{mention['acct']} "
+                # if mention['acct'] in followers:
+                mentions += f"@{mention['acct']} "
 
         lines.append(mentions)
 
         for entity in entities:
-            # slug = slugify(wikilink)
-            path = urllib.parse.quote_plus(entity)
+            path = urllib.parse.quoe_plus(entity)
             lines.append(f'https://anagora.org/{path}')
 
         msg = '\n'.join(lines)
@@ -156,7 +144,8 @@ class AgoraBot(StreamListener):
             try:
                 with open(bot_stream_filename, 'a') as note:
                     url = toot.url or toot.uri
-                    note.write(f"- [[{toot.account.acct}]] {url}\n")
+                    # Now also adding creation datetime of the toot to align with other bots.
+                    note.write(f"- [[{toot.created_at}]] [[{toot.account.acct}]] {url}\n")
             except: 
                 L.error("Couldn't log toot to note.")
                 return False

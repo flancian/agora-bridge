@@ -3,4 +3,4 @@
 # . venv/bin/activate
 OUTPUT=/home/flancian/agora/stream/
 mkdir ${OUTPUT}
-poetry run ./agora-bot.py --config agora-bot.yaml --catch-up --dry-run --output=${OUTPUT} $@
+uv run ./agora-bot.py --config agora-bot.yaml --catch-up --output=${OUTPUT} $@

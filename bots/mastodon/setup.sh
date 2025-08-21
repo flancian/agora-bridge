@@ -4,6 +4,6 @@
 
 python3 -m venv venv &&
 . venv/bin/activate &&
-pip3 install -r requirements.txt
+uv pip sync -r requirements.txt
 
 echo "see agora-bridge.service and https://anagora.org/systemd for pointers on how to set up a production agora as a system service."

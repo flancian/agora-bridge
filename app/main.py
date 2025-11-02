@@ -8,23 +8,32 @@ from datetime import datetime
 app = Flask(__name__)
 
 def get_garden_last_updated(garden):
-    """Gets the last updated time for a garden."""
+    """
+    Gets the last updated time for a garden by constructing the path
+    from the Agora root and the garden's target.
+    """
     agora_path = os.path.expanduser('~/agora')
     target_path = os.path.join(agora_path, garden.get('target', ''))
 
     if not os.path.isdir(target_path):
-        return "Directory not found"
+        return f"Directory not found at: {target_path}"
 
-    if garden.get('format') == 'git':
+    if garden.get('format') == 'git' or garden.get('format') == 'foam': # Treat foam as git for this purpose
         try:
+            if not os.path.isdir(os.path.join(target_path, '.git')):
+                return f"Not a git repository"
+
             result = subprocess.run(
                 ['git', '-C', target_path, 'log', '-1', '--format=%cd', '--date=iso'],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True,
             )
             return result.stdout.strip()
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            return f"Git error: {e}"
+        except subprocess.CalledProcessError as e:
+            return f"Git error: {e.stderr.strip()}"
+        except FileNotFoundError:
+            return "Git command not found"
     else:
+        # Fallback for non-git formats like fedwiki, logseq
         try:
             mtime = os.path.getmtime(target_path)
             return datetime.fromtimestamp(mtime).isoformat()
@@ -70,6 +79,12 @@ def index():
                 for garden in gardens_config:
                     garden['last_updated'] = get_garden_last_updated(garden)
                     gardens.append(garden)
+                
+                # Sort gardens by last_updated, putting errors last.
+                gardens.sort(
+                    key=lambda g: (g['last_updated'][0].isdigit(), g['last_updated']),
+                    reverse=True
+                )
 
     except FileNotFoundError:
         error_message = f"Configuration file not found at {config_path}. Please ensure it exists. You can use 'gardens.yaml.example' as a template."

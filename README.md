@@ -38,29 +38,44 @@ See https://anagora.org/node/an-agora for more.
 
 ## Install
 
-[[Install uv]] (we migrated to uv from poetry, please excuse any confusion due to outdated docs/files).
-
-```
+First, [[install uv]] if you haven't already (we migrated to uv from poetry, please excuse any confusion due to outdated docs/files).
+```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Then run the development server:
-```
-./run-dev.sh
+Next, create a virtual environment and install the required Python dependencies:
+```bash
+uv venv
+uv pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Digital gardens
+The Agora Bridge consists of several components that can be run for development.
+
+### Garden Puller (Worker)
+
+This script continuously pulls updates from the digital gardens configured in `~/agora/sources.yaml`.
+```bash
+./run-dev.sh
+```
+
+### Web Status Dashboard
+
+This runs a Flask web server that shows the status of the bridge and the configured gardens.
+```bash
+./run-web-dev.sh
+```
+
+### Manual Pulling
 
 The following is an example for a deployment in which both agora-bridge (this repository) and agora (https://github.com/flancian/agora) are in the home directory of the same user.
-
+```bash
+uv run pull.py --config ~/agora/sources.yaml --output-dir ~/agora/garden 
 ```
-uv run pull.py --config ~/agora/gardens.yaml --output-dir ~/agora/garden 
-```
 
-### Social media
+### Social Media Bots
 
 Work is always in progress :) 
 
-See the `bot` directory in this repository for system account code for supported platforms (some broken due to interop issues momentarily.) or read more about [[agora bridge]] in the Agora: https://anagora.org/agora-bridge.
+See the `bots` directory in this repository for system account code for supported platforms (some broken due to interop issues momentarily.) or read more about [[agora bridge]] in the Agora: https://anagora.org/agora-bridge.

@@ -39,3 +39,8 @@ pull = "pull:main"
 
 [tool.setuptools]
 packages = []
+
+[tool.uv.workspace]
+members = [
+    "bots/mastodon",
+]

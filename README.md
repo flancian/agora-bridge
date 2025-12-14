@@ -36,43 +36,81 @@ Currently supports digital gardens stored on [[git]], as per https://anagora.org
 
 See https://anagora.org/node/an-agora for more.
 
-## Install
+## The Agora Protocol
 
-First, [[install uv]] if you haven't already (we migrated to uv from poetry, please excuse any confusion due to outdated docs/files).
+The Agora Protocol is not a formal network protocol, but rather a set of core principles that guide the project's design:
+
+-   **Decentralization**: The filesystem is the ultimate source of truth. The server is a lens, not a silo.
+-   **Nodes are Concepts, Subnodes are Utterances**: A key distinction where abstract topics (`[[Calculus]]`) are composed of concrete contributions (`@flancian/calculus.md`).
+-   **Composition over Centralization**: Nodes are built by pulling and combining content from other, more specialized nodes.
+-   **Everything Has a Place (No 404s)**: Every possible query resolves to a node, turning dead ends into invitations to contribute.
+
+## Development Setup
+
+This project uses `uv` for environment and package management. All dependencies are defined in `pyproject.toml`.
+
+**1. Install `uv`**
+
+If you don't have it, install it with the official script:
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Next, create a virtual environment and install the required Python dependencies:
+**2. Create the Virtual Environment**
 ```bash
 uv venv
-uv pip install -r requirements.txt
 ```
 
-## Usage
+**3. Install Dependencies**
 
-The Agora Bridge consists of several components that can be run for development.
-
-### Garden Puller (Worker)
-
-This script continuously pulls updates from the digital gardens configured in `~/agora/sources.yaml`.
+To install all core and optional (bots) dependencies for development, run:
 ```bash
+uv pip install -r requirements.txt
+```
+> **How does this work?** The `requirements.txt` file contains a single line, `-e .[all]`, which tells `uv` to install the project in editable mode (`-e .`) and to include all the optional dependency groups defined in `pyproject.toml` (`[all]`).
+
+If you only need to work on a specific component, you can install its dependencies directly. For example, to install only the core bridge and the Mastodon bot:
+```bash
+uv pip install -e .[mastodon]
+```
+
+## Running the Bridge
+
+This project currently has two conventions for running scripts. Please check below to see where to run each command.
+
+### Running from the Project Root
+
+The main worker, the web application, and other root-level scripts should be run from the root of the `agora-bridge` project.
+
+**Garden Puller (Worker):**
+```bash
+# from /home/flancian/agora-bridge/
 ./run-dev.sh
 ```
 
-### Web Status Dashboard
-
-This runs a Flask web server that shows the status of the bridge and the configured gardens.
+**Web Status Dashboard:**
 ```bash
+# from /home/flancian/agora-bridge/
 ./run-web-dev.sh
 ```
 
-### Manual Pulling
+### Running the Bots
 
-The following is an example for a deployment in which both agora-bridge (this repository) and agora (https://github.com/flancian/agora) are in the home directory of the same user.
+The easiest way to run the bots is to use the provided wrapper scripts from the project root. These scripts ensure the bots are run with the correct paths to their configurations.
+
+**Example (Mastodon Bot):**
+Before running for the first time, you'll need to set up your configuration:
 ```bash
-uv run pull.py --config ~/agora/sources.yaml --output-dir ~/agora/garden 
+cp bots/mastodon/agora-bot.yaml.example bots/mastodon/agora-bot.yaml
+# ...then edit bots/mastodon/agora-bot.yaml with your credentials...
 ```
+
+Then, you can run the bot with:
+```bash
+# from /home/flancian/agora-bridge/
+./run-mastodon-bot.sh --catch-up
+```
+Any arguments you add (like `--catch-up` or `--dry-run`) are passed directly to the bot script. The same pattern applies to the Bluesky bot (`./run-bluesky-bot.sh`).
 
 ### Social Media Bots
 

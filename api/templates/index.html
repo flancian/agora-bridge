@@ -18,17 +18,43 @@
 <body>
     <h1>Agora Bridge Status</h1>
 
+    <h2>API Endpoints</h2>
+    {% if endpoints %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Endpoint</th>
+                    <th>Methods</th>
+                    <th>Description</th>
+                    <th>Parameters</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for endpoint in endpoints %}
+                <tr>
+                    <td><code>{{ endpoint.path }}</code></td>
+                    <td>{{ endpoint.methods }}</td>
+                    <td>{{ endpoint.description }}</td>
+                    <td><pre>{{ endpoint.parameters }}</pre></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="empty">No API endpoints are available.</p>
+    {% endif %}
+
     {% if error_message %}
         <div class="error">
             <strong>Configuration Error:</strong> {{ error_message }}
         </div>
     {% else %}
-        <h2>Configured Gardens</h2>
-        {% if gardens %}
+        <h2>Configured Sources</h2>
+        {% if sources %}
             <table>
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th>#</th>
                         <th>URL</th>
                         <th>Target</th>
                         <th>Format</th>
@@ -36,19 +62,19 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for garden in gardens %}
+                    {% for source in sources %}
                     <tr>
-                        <td>{{ garden.id }}</td>
-                        <td><a href="{{ garden.url }}">{{ garden.url }}</a></td>
-                        <td>{{ garden.target }}</td>
-                        <td>{{ garden.format }}</td>
-                        <td>{{ garden.last_updated }}</td>
+                        <td>{{ loop.index }}</td>
+                        <td><a href="{{ source.url }}">{{ source.url }}</a></td>
+                        <td>{{ source.target }}</td>
+                        <td>{{ source.format }}</td>
+                        <td>{{ source.last_updated }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         {% else %}
-            <p class="empty">No gardens configured in <code>~/agora/sources.yaml</code>.</p>
+            <p class="empty">No sources configured in <code>~/agora/sources.yaml</code>.</p>
         {% endif %}
     {% endif %}
 

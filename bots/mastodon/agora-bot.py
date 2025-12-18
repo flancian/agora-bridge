@@ -34,7 +34,7 @@ from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetwork
 # common.py should have the methods to write resources to a node in any case.
 # (maybe direct writing to disk can remain as an option, as it's very simple and convenient if people are running local agoras?).
 # [[2025-03-23]]: drive by while I'm passing by here fixing a different thing -- I think I'm coming to terms with the fact that a lot of hacks I intend to fix will be permanent :) not saying that this is one, but if it is, so be it. Future Agoras will learn from our mistakes ;)
-import common
+from . import common
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
 # thou shall not use regexes to parse html, except when yolo
@@ -105,7 +105,7 @@ class AgoraBot(StreamListener):
         lines.append(mentions)
 
         for entity in entities:
-            path = urllib.parse.quoe_plus(entity)
+            path = urllib.parse.quote_plus(entity)
             lines.append(f'https://anagora.org/{path}')
 
         msg = '\n'.join(lines)
@@ -241,7 +241,7 @@ class AgoraBot(StreamListener):
 
     def get_statuses(self, user):
         # Added on [[2025-03-23]] to work around weird Mastodon bug with sorting, and it seems generally useful so...
-        batch = mastodon.account_statuses(user['id'], limit=40)
+        batch = self.mastodon.account_statuses(user['id'], limit=40)
         posts = []
         while batch:
             posts += batch
@@ -380,7 +380,7 @@ def main():
     bot = AgoraBot(mastodon, bot_username)
     followers = bot.get_followers()
     # Now unused?
-    watching = get_watching(mastodon)
+    # watching = get_watching(mastodon)
 
     # try to clean up one old list to account for the one we'll create next.
     lists = mastodon.lists()
@@ -392,12 +392,12 @@ def main():
     except:
         L.info("couldn't clean up list.")
 
-    try:
-        mastodon.list_accounts_add(watching, followers)
-    except MastodonAPIError as e:
-        print("error when trying to add accounts to watching")
-        print(f"watching: {watching}")
-        print(e)
+    # try:
+    #     mastodon.list_accounts_add(watching, followers)
+    # except MastodonAPIError as e:
+    #     print("error when trying to add accounts to watching")
+    #     print(f"watching: {watching}")
+    #     print(e)
 
     # why do we have both? hmm.
     # TODO(flancian): look in commit history or try disabling one.
@@ -421,6 +421,7 @@ def main():
 
         # YOLO -- working around a potential bug after the move to GoToSocial :)
         followers = bot.get_followers()
+        L.info(f'Followers: {followers}')
         for user in followers:
             L.info(f'Trying to follow back {user.acct}')
             try:

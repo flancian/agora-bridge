@@ -1,0 +1,22 @@
+# to run the Agora Mastodon Bot as a service:
+#
+# 1. create a dedicated user, I use 'agora'. If you use a different user/path, adjust below.
+# 2. copy or symlink this to ~/.config/systemd/user/agora-mastodon-bot.service in that user:
+#   $ mkdir -p ~/.config/systemd/user
+#   $ cp agora-mastodon-bot.service ~/.config/systemd/user/agora-mastodon-bot.service
+# 3. start: systemctl --user start agora-mastodon-bot
+# 4. enable (so it automatically starts on boot): systemctl --user enable agora-mastodon-bot
+#
+# thereafter you can check process logs with: journalctl -u agora-mastodon-bot.service
+
+[Unit]
+Description=Agora Mastodon Bot
+
+[Service]
+WorkingDirectory=/home/agora/agora-bridge
+ExecStart=/home/agora/agora-bridge/run-mastodon-bot-prod.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

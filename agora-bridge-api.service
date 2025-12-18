@@ -1,0 +1,22 @@
+# to run the Agora Bridge API as a service:
+#
+# 1. create a dedicated user, I use 'agora'. If you use a different user/path, adjust below.
+# 2. copy or symlink this to ~/.config/systemd/user/agora-bridge-api.service in that user:
+#   $ mkdir -p ~/.config/systemd/user
+#   $ cp agora-bridge-api.service ~/.config/systemd/user/agora-bridge-api.service
+# 3. start: systemctl --user start agora-bridge-api
+# 4. enable (so it automatically starts on boot): systemctl --user enable agora-bridge-api
+#
+# thereafter you can check process logs with: journalctl -u agora-bridge-api.service
+
+[Unit]
+Description=Agora Bridge API, providing endpoints for the Agora.
+
+[Service]
+WorkingDirectory=/home/agora/agora-bridge
+ExecStart=/home/agora/agora-bridge/run-api-dev.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

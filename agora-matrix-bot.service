@@ -1,0 +1,24 @@
+# to run the Agora Matrix Bot as a service:
+#
+# 1. create a dedicated user, I use 'agora'. If you use a different user/path, adjust below.
+# 2. copy or symlink this to ~/.config/systemd/user/agora-matrix-bot.service in that user:
+#   $ mkdir -p ~/.config/systemd/user
+#   $ cp agora-matrix-bot.service ~/.config/systemd/user/agora-matrix-bot.service
+# 3. start: systemctl --user start agora-matrix-bot
+# 4. enable (so it automatically starts on boot): systemctl --user enable agora-matrix-bot
+#
+# thereafter you can check process logs with: journalctl -u agora-matrix-bot.service
+
+[Unit]
+Description=Agora Matrix Bot (Maubot)
+
+[Service]
+WorkingDirectory=/home/agora/agora-bridge/bots/matrix
+# Assuming maubot is installed in a venv or globally available; adjust as needed.
+# This might need a specific run script if one doesn't exist.
+ExecStart=/usr/bin/maubot -c config.yaml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

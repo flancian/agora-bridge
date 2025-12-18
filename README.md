@@ -45,6 +45,16 @@ The Agora Protocol is not a formal network protocol, but rather a set of core pr
 -   **Composition over Centralization**: Nodes are built by pulling and combining content from other, more specialized nodes.
 -   **Everything Has a Place (No 404s)**: Every possible query resolves to a node, turning dead ends into invitations to contribute.
 
+## Future Plans: Hosted Gardens
+
+We are working on integrating with **Forgejo** (a federated Git forge) to offer hosted digital gardens for users who don't have their own infrastructure.
+
+**Planned Workflow:**
+1.  User selects "Host me" in the Agora Server UI.
+2.  Server requests provisioning from the Bridge.
+3.  Bridge uses the Forgejo API to create a user/repo on `git.anagora.org`.
+4.  Bridge adds the new repo to `sources.yaml` and starts tracking it.
+
 ## Development Setup
 
 This project uses `uv` for environment and package management. All dependencies are defined in `pyproject.toml`.

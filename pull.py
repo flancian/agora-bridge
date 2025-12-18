@@ -139,9 +139,11 @@ def main():
 
     for item in config:
         path = os.path.join(args.output_dir, item['target'])
-        if item['format'] == "fedwiki":
+        if item.get('format') == "fedwiki":
             Q.put((fedwiki_import, item['url'], path))
             continue
+        
+        # Default to git for all other formats (markdown, obsidian, foam, etc.)
         # schedule one 'clone' run for every garden, in case this is a new garden (or agora).
         Q.put((git_clone, item['url'], path))
         # pull it once, it will be queued again later from the worker.

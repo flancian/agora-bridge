@@ -157,6 +157,8 @@ def add_source():
     - target (string, required): The slug/name of the source.
     - type (string, required): The type of the source ('garden' or 'stoa'). Used as path prefix.
     - format (string, optional): The format of the source (e.g., 'git', 'fedwiki'). Defaults to 'git'.
+    - web (string, optional): The URL template for viewing the rendered page.
+    - message (string, optional): A reason for joining or message to the admins.
     """
     if not request.json or 'url' not in request.json or 'target' not in request.json or 'type' not in request.json:
         return jsonify({'error': 'Invalid request. JSON payload with "url", "target" and "type" is required.'}), 400
@@ -173,6 +175,20 @@ def add_source():
         'target': full_target,
         'format': request.json.get('format', 'git')
     }
+    
+    if 'web' in request.json:
+        new_source['web'] = request.json['web']
+
+    message_content = request.json.get('message')
+    if message_content:
+        # Log the message to a separate file for review
+        try:
+            log_path = os.path.expanduser('~/agora/applications.log')
+            with open(log_path, 'a') as f:
+                timestamp = datetime.now().isoformat()
+                f.write(f"[{timestamp}] Source: {full_target} | URL: {new_source['url']} | Message: {message_content}\n")
+        except IOError as e:
+            current_app.logger.error(f"Failed to write application log: {e}")
 
     config_path = os.path.expanduser('~/agora/sources.yaml')
     sources = []
@@ -201,7 +217,8 @@ def add_source():
     # Trigger immediate clone
     # We should do this asynchronously ideally, but for now synchronous is fine for MVP.
     message = 'Source added successfully.'
-    if new_source.get('format') == 'git' or new_source.get('format') == 'foam':
+    # We clone for everything EXCEPT fedwiki (which needs a special import process)
+    if new_source.get('format') != 'fedwiki':
         agora_path = os.path.expanduser('~/agora')
         target_path = os.path.join(agora_path, full_target)
         

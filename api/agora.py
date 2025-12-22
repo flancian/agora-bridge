@@ -3,7 +3,10 @@ import yaml
 import os
 import subprocess
 import sqlite3
+import secrets
+import string
 from datetime import datetime
+from .forgejo import ForgejoClient
 
 bp = Blueprint('agora', __name__)
 
@@ -237,3 +240,102 @@ def add_source():
              return jsonify({'message': 'Source added to config, but an error occurred during cloning.', 'error': str(e), 'source': new_source}), 202
 
     return jsonify({'message': message, 'source': new_source}), 201
+
+@bp.route('/provision', methods=['POST'])
+def provision_garden():
+    """
+    Provisions a new garden (user + repo) on the configured Forgejo instance.
+    
+    Parameters:
+    JSON Payload:
+    - username (string, required): The desired username.
+    - email (string, required): The user's email address.
+    """
+    if not request.json or 'username' not in request.json or 'email' not in request.json:
+        return jsonify({'error': 'Missing username or email.'}), 400
+
+    username = request.json['username']
+    email = request.json['email']
+    
+    forgejo_url = os.environ.get('AGORA_FORGEJO_URL')
+    forgejo_token = os.environ.get('AGORA_FORGEJO_TOKEN')
+    
+    if not forgejo_url or not forgejo_token:
+        return jsonify({'error': 'Forgejo integration not configured on Bridge.'}), 503
+        
+    client = ForgejoClient(forgejo_url, forgejo_token)
+    
+    # 1. Generate Password
+    alphabet = string.ascii_letters + string.digits
+    password = ''.join(secrets.choice(alphabet) for i in range(16))
+    
+    # 2. Create User
+    try:
+        if client.check_user_exists(username):
+             return jsonify({'error': f"User {username} already exists on the forge."}), 409
+             
+        client.create_user(username, email, password, must_change_password=True)
+    except Exception as e:
+        return jsonify({'error': f"Failed to create user: {str(e)}"}), 500
+        
+    # 3. Create Repository 'garden'
+    try:
+        repo_data = client.create_repo(username, 'garden', description="My Digital Garden in the Agora", private=False)
+        clone_url = repo_data.get('clone_url')
+    except Exception as e:
+        return jsonify({'error': f"User created, but failed to create repo: {str(e)}"}), 500
+        
+    # 4. Add to sources.yaml (reuse internal logic if possible, or just call add_source logic)
+    # Ideally we'd call add_source internally, but for now let's just return the info
+    # and let the Server call /sources (or we can do it here).
+    # Doing it here is atomic and nicer.
+    
+    # ... logic to add to sources.yaml ...
+    # Reuse the add_source logic by constructing a pseudo-request? Or refactor add_source?
+    # Refactoring is cleaner but let's just duplicate the minimal config write for safety/speed now.
+    
+    target = f"garden/{username}"
+    new_source = {
+        'url': clone_url,
+        'target': target,
+        'format': 'markdown', # Default for hosted gardens
+        'web': clone_url # Use the repo URL as the web link for now
+    }
+    
+    config_path = os.path.expanduser('~/agora/sources.yaml')
+    try:
+        # Load existing
+        existing_sources = []
+        try:
+            with open(config_path, 'r') as f:
+                existing_sources = yaml.safe_load(f) or []
+        except FileNotFoundError:
+            pass
+            
+        # Append
+        # Check duplicate
+        if not any(s.get('url') == new_source['url'] for s in existing_sources):
+            existing_sources.append(new_source)
+            with open(config_path, 'w') as f:
+                yaml.dump(existing_sources, f, default_flow_style=False)
+                
+            # Trigger clone (it's empty but we need the folder structure)
+            # The repo will have a README from auto_init
+            agora_path = os.path.expanduser('~/agora')
+            target_path = os.path.join(agora_path, target)
+            if not os.path.exists(target_path):
+                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                 env = os.environ.copy()
+                 env['GIT_TERMINAL_PROMPT'] = '0'
+                 subprocess.run(['git', 'clone', clone_url, target_path], check=True, env=env)
+
+    except Exception as e:
+        current_app.logger.error(f"Provisioning succeeded but failed to add to local Agora: {e}")
+        # We still return success because the user account IS created.
+        
+    return jsonify({
+        'message': 'Garden provisioned successfully.',
+        'username': username,
+        'password': password,
+        'repo_url': clone_url
+    }), 201

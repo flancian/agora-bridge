@@ -3,7 +3,7 @@ set -e
 
 # Default to sibling directory
 BULL_SRC_DIR="../../bull"
-BULL_REPO="https://github.com/stapelberg/bull.git"
+BULL_REPO="https://github.com/gokrazy/bull.git"
 
 echo "🐂 Setting up Bull..."
 

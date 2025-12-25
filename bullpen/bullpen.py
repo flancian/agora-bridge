@@ -166,5 +166,5 @@ def proxy(username, path):
         return "Proxy Error", 502
 
 if __name__ == '__main__':
-    # Run locally on 5200
-    app.run(host='127.0.0.1', port=5200)
+    # Run locally on 5019
+    app.run(host='127.0.0.1', port=5019)

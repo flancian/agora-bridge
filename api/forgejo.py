@@ -63,6 +63,26 @@ class ForgejoClient:
             self.logger.error(f"Failed to create repo {username}/{repo_name}: {response.text}")
             response.raise_for_status()
 
+    def add_deploy_key(self, username, repo_name, title, key, read_only=False):
+        """
+        Add a deploy key to a repository.
+        """
+        endpoint = f"{self.api_url}/repos/{username}/{repo_name}/keys"
+        payload = {
+            "title": title,
+            "key": key,
+            "read_only": read_only
+        }
+
+        response = requests.post(endpoint, json=payload, headers=self.headers)
+        if response.status_code == 201:
+            self.logger.info(f"Successfully added deploy key '{title}' to {username}/{repo_name}")
+            return response.json()
+        else:
+            self.logger.error(f"Failed to add deploy key to {username}/{repo_name}: {response.text}")
+            # Don't raise immediately, just return None/False so the caller can decide
+            return None
+
     def check_user_exists(self, username):
         """
         Check if a user exists.

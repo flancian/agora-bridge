@@ -10,6 +10,10 @@ from .forgejo import ForgejoClient
 
 bp = Blueprint('agora', __name__)
 
+# The SSH public key for the agora-bridge user on the production server (thecla).
+# This key is added to every hosted garden to allow the bridge to push changes (e.g. from the Bullpen editor).
+AGORA_BRIDGE_DEPLOY_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL96izEnhC5x8l9dt6DNjidNij/kDwb4ILmZxZ4des65 agora@thecla"
+
 def get_source_last_updated(source):
     """
     Gets the last updated time for a source by constructing the path
@@ -289,6 +293,10 @@ def provision_garden():
     try:
         repo_data = client.create_repo(username, 'garden', description="My Digital Garden in the Agora", private=False)
         clone_url = repo_data.get('clone_url')
+        
+        # 3b. Add Deploy Key
+        client.add_deploy_key(username, 'garden', 'agora-bridge-sync', AGORA_BRIDGE_DEPLOY_KEY, read_only=False)
+        
     except Exception as e:
         return jsonify({'error': f"User created, but failed to create repo: {str(e)}"}), 500
         

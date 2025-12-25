@@ -16,7 +16,7 @@ if ! command -v bull &> /dev/null; then
     fi
 fi
 
-echo "Starting Bullpen on port 5200..."
+echo "Starting Bullpen on port 5019..."
 echo "Serving gardens from: $AGORA_ROOT"
 
 # Use uv to run the Flask app directly

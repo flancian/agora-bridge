@@ -138,7 +138,8 @@ def proxy(username, path):
         logger.error(f"Failed to provision: {e}")
         return "Failed to start editor", 500
 
-    target_url = f"http://127.0.0.1:{instance.port}/{path}"
+    # We must include the /@username prefix because bull is started with -root=/@username
+    target_url = f"http://127.0.0.1:{instance.port}/@{username}/{path}"
     if request.query_string:
         target_url += f"?{request.query_string.decode('utf-8')}"
 

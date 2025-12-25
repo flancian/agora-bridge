@@ -183,13 +183,20 @@ def add_source():
         new_source['web'] = request.json['web']
 
     message_content = request.json.get('message')
-    if message_content:
-        # Log the message to a separate file for review
+    email_content = request.json.get('email')
+    
+    if message_content or email_content:
+        # Log the message/email to a separate file for review
         try:
             log_path = os.path.expanduser('~/agora/applications.log')
             with open(log_path, 'a') as f:
                 timestamp = datetime.now().isoformat()
-                f.write(f"[{timestamp}] Source: {full_target} | URL: {new_source['url']} | Message: {message_content}\n")
+                log_entry = f"[{timestamp}] Source: {full_target} | URL: {new_source['url']}"
+                if email_content:
+                    log_entry += f" | Email: {email_content}"
+                if message_content:
+                    log_entry += f" | Message: {message_content}"
+                f.write(log_entry + "\n")
         except IOError as e:
             current_app.logger.error(f"Failed to write application log: {e}")
 

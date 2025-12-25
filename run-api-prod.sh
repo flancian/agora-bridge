@@ -4,6 +4,9 @@
 export FLASK_APP="api"
 export FLASK_ENV="production"
 
+# This is needed for uv for some reason, but only when you need as a systemd service.
+export PATH=$HOME/.local/bin:${PATH}
+
 # If you want to have repo provisioning work, you need to define and export the following variables:
 # export AGORA_FORGEJO_URL="https://git.anagora.org/api/v1"
 # export AGORA_FORGEJO_TOKEN="forgejo_app_token_here"

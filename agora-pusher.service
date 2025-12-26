@@ -3,8 +3,8 @@ Description=Agora Garden Pusher (Syncs hosted gardens to Forgejo)
 After=network.target
 
 [Service]
-WorkingDirectory=/home/flancian/agora-bridge
-ExecStart=/home/flancian/agora-bridge/push-gardens.sh
+WorkingDirectory=%h/agora-bridge
+ExecStart=%h/agora-bridge/push-gardens.sh
 Restart=always
 RestartSec=60
 

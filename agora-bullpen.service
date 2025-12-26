@@ -3,12 +3,12 @@ Description=Agora Bullpen (Editor Proxy)
 After=network.target
 
 [Service]
-WorkingDirectory=/home/flancian/agora-bridge
-ExecStart=/home/flancian/agora-bridge/run-bullpen.sh
+WorkingDirectory=%h/agora-bridge
+ExecStart=%h/agora-bridge/run-bullpen.sh
 Restart=always
 RestartSec=5
 # Environment variables can be added here if needed
-# Environment=AGORA_ROOT=/home/flancian/agora/garden
+# Environment=AGORA_ROOT=%h/agora/garden
 
 [Install]
 WantedBy=default.target

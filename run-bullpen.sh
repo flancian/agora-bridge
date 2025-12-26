@@ -1,6 +1,9 @@
 #!/bin/bash
 # Development script for the Bullpen (Bull Herder).
 
+# This is needed for uv for some reason, but only when you need as a systemd service.
+export PATH=$HOME/.local/bin:${PATH}
+
 # Set the path to your Agora Garden root if different
 export AGORA_ROOT="${AGORA_ROOT:-$HOME/agora/garden}"
 

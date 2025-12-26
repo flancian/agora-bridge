@@ -8,6 +8,7 @@ import requests
 import tempfile
 from flask import Flask, request, Response, abort, session, redirect, url_for
 from authlib.integrations.flask_client import OAuth
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Configuration
 AGORA_ROOT = os.path.expanduser("~/agora/garden")
@@ -26,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("bullpen")
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 app.secret_key = SECRET_KEY
 
 # OAuth Setup
@@ -203,6 +205,7 @@ def login():
     if not CLIENT_ID:
         return "OAuth not configured", 500
     redirect_uri = url_for('auth_callback', _external=True)
+    logger.info(f"Initiating OAuth login with redirect_uri: {redirect_uri}")
     return oauth.forgejo.authorize_redirect(redirect_uri)
 
 @app.route('/auth/callback')

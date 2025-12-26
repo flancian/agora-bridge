@@ -12,8 +12,6 @@ bp = Blueprint('agora', __name__)
 
 # The SSH public key for the agora-bridge user on the production server (thecla).
 # This key is added to every hosted garden to allow the bridge to push changes (e.g. from the Bullpen editor).
-AGORA_BRIDGE_DEPLOY_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL96izEnhC5x8l9dt6DNjidNij/kDwb4ILmZxZ4des65 agora@thecla"
-
 EDITOR_BASE_URL = os.environ.get('AGORA_EDITOR_URL', 'https://edit.anagora.org')
 FORGE_BASE_URL = os.environ.get('AGORA_FORGE_URL', 'https://git.anagora.org')
 AGORA_BASE_URL = os.environ.get('AGORA_URL', 'https://anagora.org')
@@ -302,9 +300,6 @@ def provision_garden():
         repo_full_name = repo_data.get('full_name') # e.g. "username/garden"
         clone_url = f"ssh://git@git.anagora.org:2222/{repo_full_name}.git"
         web_url = repo_data.get('html_url') or repo_data.get('clone_url')
-        
-        # 3b. Add Deploy Key
-        client.add_deploy_key(username, 'garden', 'agora-bridge-sync', AGORA_BRIDGE_DEPLOY_KEY, read_only=False)
         
     except Exception as e:
         return jsonify({'error': f"User created, but failed to create repo: {str(e)}"}), 500

@@ -223,7 +223,8 @@ def auth_callback():
 @app.route('/logout')
 def logout():
     session.pop('user', None)
-    return redirect('/')
+    # Redirect to Forgejo logout to ensure session is cleared there too
+    return redirect('https://git.anagora.org/user/logout')
 
 @app.route('/')
 def index():

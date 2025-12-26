@@ -66,10 +66,12 @@ sync_gardens() {
 }
 
 # Run immediately on start
+echo "Running initial sync..."
 sync_gardens
 
 # If not running once, enter the loop
 if [ "$ONCE" = false ]; then
+    echo "Initial sync complete. Entering watch loop..."
     while true; do
         sleep 60
         sync_gardens

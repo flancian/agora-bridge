@@ -125,6 +125,37 @@ def reaper_loop():
 reaper_thread = threading.Thread(target=reaper_loop, daemon=True)
 reaper_thread.start()
 
+@app.route('/')
+def index():
+    with instances_lock:
+        active_users = list(instances.keys())
+    
+    html = """
+    <html>
+    <head><title>Agora Bullpen</title></head>
+    <body style="font-family: sans-serif; padding: 2rem;">
+        <h1>🐂 Agora Bullpen</h1>
+        <p>The Bullpen manages active editor instances.</p>
+        
+        <h3>Active Instances</h3>
+        <ul>
+    """
+    
+    if active_users:
+        for user in active_users:
+            html += f'<li><a href="/@{user}/">@{user}</a></li>'
+    else:
+        html += "<li><em>No active instances.</em></li>"
+        
+    html += """
+        </ul>
+        <hr>
+        <p><small>Powered by <a href="https://github.com/flancian/agora-bridge">Agora Bridge</a></small></p>
+    </body>
+    </html>
+    """
+    return html
+
 @app.route('/_bull/<path:path>', methods=["GET"])
 def proxy_bull_assets(path):
     # Find any active instance to serve static assets

@@ -223,8 +223,7 @@ def auth_callback():
 @app.route('/logout')
 def logout():
     session.pop('user', None)
-    # Redirect to Forgejo logout to ensure session is cleared there too
-    return redirect('https://git.anagora.org/user/logout')
+    return redirect('/')
 
 @app.route('/')
 def index():
@@ -241,9 +240,16 @@ def index():
     """
     
     if current_user:
-        html += f"Logged in as <strong>{current_user}</strong> | <a href='/logout'>Logout</a>"
+        html += f"""
+        Logged in as <strong>{current_user}</strong> | 
+        <a href="https://git.anagora.org/" target="_blank">Forge 🔨</a> | 
+        <a href='/logout'>Logout</a>
+        """
     else:
-        html += "<a href='/login'>Login with Agora Git</a>"
+        html += """
+        <a href="https://git.anagora.org/" target="_blank">Forge 🔨</a> | 
+        <a href='/login'>Login with Agora Git</a>
+        """
         
     html += """
         </div>

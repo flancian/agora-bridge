@@ -8,6 +8,12 @@ GARDEN_ROOT="${AGORA_ROOT:-$HOME/agora/garden}"
 echo "Starting Garden Pusher loop..."
 echo "Watching: $GARDEN_ROOT"
 
+ONCE=false
+if [[ "$1" == "--once" || "$1" == "-1" ]]; then
+    ONCE=true
+    echo "Running once..."
+fi
+
 while true; do
     # Iterate through all directories in garden/
     # We use find to safely handle potential spaces in filenames, though unlikely for usernames
@@ -21,11 +27,17 @@ while true; do
             if git remote get-url origin 2>/dev/null | grep -q "git.anagora.org"; then
                 
                 # Check for uncommitted changes (modified, added, deleted)
-                if [[ -n $(git status --porcelain) ]]; then
+                # OR if local main is ahead of origin/main (committed but not pushed)
+                CHANGES=$(git status --porcelain)
+                AHEAD=$(git rev-list --count origin/main..main 2>/dev/null)
+                
+                if [[ -n "$CHANGES" || "$AHEAD" -gt 0 ]]; then
                     echo "[$(date)] Syncing $d..."
                     
-                    git add .
-                    git commit -m "Agora Edit (Bullpen)"
+                    if [[ -n "$CHANGES" ]]; then
+                        git add .
+                        git commit -m "Agora Edit (Bullpen)"
+                    fi
                     
                     # Try to push. If it fails (e.g. auth), log it but don't crash.
                     if git push; then
@@ -37,6 +49,10 @@ while true; do
             fi
         fi
     done
+    
+    if [ "$ONCE" = true ]; then
+        break
+    fi
     
     # Wait before next cycle
     sleep 60

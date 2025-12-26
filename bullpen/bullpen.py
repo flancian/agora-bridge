@@ -38,7 +38,11 @@ class BullInstance:
             else:
                  raise FileNotFoundError(f"Garden not found for {self.username}")
 
-        cmd = [BULL_BINARY, "-content", garden_path, "serve", f"-listen=127.0.0.1:{self.port}", f"-root=/@{self.username}"]
+        root_arg = f"-root=/@{self.username}"
+        if self.username == ASSET_USER:
+            root_arg = "-root=/"
+
+        cmd = [BULL_BINARY, "-content", garden_path, "serve", f"-listen=127.0.0.1:{self.port}", root_arg]
         logger.info(f"Starting bull for {self.username} on port {self.port}: {' '.join(cmd)}")
         
         # Start detached process

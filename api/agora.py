@@ -14,6 +14,10 @@ bp = Blueprint('agora', __name__)
 # This key is added to every hosted garden to allow the bridge to push changes (e.g. from the Bullpen editor).
 AGORA_BRIDGE_DEPLOY_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL96izEnhC5x8l9dt6DNjidNij/kDwb4ILmZxZ4des65 agora@thecla"
 
+EDITOR_BASE_URL = os.environ.get('AGORA_EDITOR_URL', 'https://edit.anagora.org')
+FORGE_BASE_URL = os.environ.get('AGORA_FORGE_URL', 'https://git.anagora.org')
+AGORA_BASE_URL = os.environ.get('AGORA_URL', 'https://anagora.org')
+
 def get_source_last_updated(source):
     """
     Gets the last updated time for a source by constructing the path
@@ -285,7 +289,7 @@ def provision_garden():
         if client.check_user_exists(username):
              return jsonify({'error': f"User {username} already exists on the forge."}), 409
              
-        client.create_user(username, email, password, must_change_password=True)
+        client.create_user(username, email, password, must_change_password=False)
     except Exception as e:
         return jsonify({'error': f"Failed to create user: {str(e)}"}), 500
         
@@ -347,7 +351,14 @@ def provision_garden():
                  os.makedirs(os.path.dirname(target_path), exist_ok=True)
                  env = os.environ.copy()
                  env['GIT_TERMINAL_PROMPT'] = '0'
-                 subprocess.run(['git', 'clone', clone_url, target_path], check=True, env=env)
+                 
+                 current_app.logger.info(f"Cloning new garden from {web_url} to {target_path}...")
+                 try:
+                     result = subprocess.run(['git', 'clone', web_url, target_path], check=True, env=env, capture_output=True, text=True)
+                     current_app.logger.info(f"Clone successful: {result.stdout}")
+                 except subprocess.CalledProcessError as e:
+                     current_app.logger.error(f"Clone failed: {e.stderr}")
+                     raise e
 
     except Exception as e:
         current_app.logger.error(f"Provisioning succeeded but failed to add to local Agora: {e}")
@@ -357,5 +368,8 @@ def provision_garden():
         'message': 'Garden provisioned successfully.',
         'username': username,
         'password': password,
-        'repo_url': clone_url
+        'repo_url': clone_url,
+        'editor_url': f"{EDITOR_BASE_URL}/@{username}",
+        'forge_url': f"{FORGE_BASE_URL}/user/login",
+        'agora_url': f"{AGORA_BASE_URL}/@{username}"
     }), 201

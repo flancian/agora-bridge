@@ -125,6 +125,40 @@ def reaper_loop():
 reaper_thread = threading.Thread(target=reaper_loop, daemon=True)
 reaper_thread.start()
 
+@app.route('/_bull/<path:path>', methods=["GET"])
+def proxy_bull_assets(path):
+    # Find any active instance to serve static assets
+    instance = None
+    with instances_lock:
+        if instances:
+            # Pick the most recently active one
+            instance = max(instances.values(), key=lambda i: i.last_active)
+    
+    if not instance:
+        return "No active bull instances to serve assets", 404
+
+    target_url = f"http://127.0.0.1:{instance.port}/_bull/{path}"
+    if request.query_string:
+        target_url += f"?{request.query_string.decode('utf-8')}"
+
+    logger.info(f"Proxying asset {request.method} {request.full_path} -> {target_url}")
+
+    try:
+        resp = requests.request(
+            method=request.method,
+            url=target_url,
+            headers={k:v for k,v in request.headers if k.lower() != 'host'},
+            allow_redirects=False,
+            stream=True
+        )
+        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+        headers = [(name, value) for (name, value) in resp.raw.headers.items()
+                   if name.lower() not in excluded_headers]
+        return Response(resp.content, resp.status_code, headers)
+    except Exception as e:
+        logger.error(f"Asset proxy error: {e}")
+        return "Asset Proxy Error", 502
+
 @app.route('/@<username>/', defaults={'path': ''}, methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 @app.route('/@<username>/<path:path>', methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 def proxy(username, path):

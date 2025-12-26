@@ -292,8 +292,11 @@ def provision_garden():
     # 3. Create Repository 'garden'
     try:
         repo_data = client.create_repo(username, 'garden', description="My Digital Garden in the Agora", private=False)
-        # Use SSH URL for the bridge to clone/push, but keep HTTPS as fallback
-        clone_url = repo_data.get('ssh_url') or repo_data.get('clone_url')
+        
+        # Use SSH URL with explicit Port 2222 for the bridge
+        # Forgejo's API might return a standard SSH URL, so we enforce the port here.
+        repo_full_name = repo_data.get('full_name') # e.g. "username/garden"
+        clone_url = f"ssh://git@git.anagora.org:2222/{repo_full_name}.git"
         web_url = repo_data.get('html_url') or repo_data.get('clone_url')
         
         # 3b. Add Deploy Key

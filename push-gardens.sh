@@ -27,10 +27,16 @@ while true; do
             REMOTE_URL=$(git remote get-url origin 2>/dev/null)
             if echo "$REMOTE_URL" | grep -q "git.anagora.org"; then
                 
-                # Auto-fix: Convert HTTPS to SSH for push access
-                if [[ "$REMOTE_URL" == https://git.anagora.org/* ]]; then
-                     NEW_URL=$(echo "$REMOTE_URL" | sed 's|https://git.anagora.org/|git@git.anagora.org:|')
-                     echo "  🔄 Converting remote to SSH: $NEW_URL"
+                # Auto-fix: Convert HTTPS (or standard SSH) to SSH on port 2222
+                # We want: ssh://git@git.anagora.org:2222/user/repo.git
+                if [[ "$REMOTE_URL" != "ssh://git@git.anagora.org:2222"* ]]; then
+                     # Strip protocol and domain to get the path (e.g., "user/repo.git")
+                     # Handles "https://git.anagora.org/user/repo.git" -> "user/repo.git"
+                     # Handles "git@git.anagora.org:user/repo.git" -> "user/repo.git"
+                     REPO_PATH=$(echo "$REMOTE_URL" | sed -E 's|https://git.anagora.org/||; s|git@git.anagora.org:||')
+                     
+                     NEW_URL="ssh://git@git.anagora.org:2222/${REPO_PATH}"
+                     echo "  🔄 Converting remote to SSH (Port 2222): $NEW_URL"
                      git remote set-url origin "$NEW_URL"
                 fi
 

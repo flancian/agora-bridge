@@ -313,7 +313,25 @@ def proxy(username, path):
         if 'user' not in session:
             return redirect('/login')
         if session['user'] != username:
-            return f"Access Denied: You are logged in as {session['user']} but trying to edit {username}'s garden.", 403
+            html = f"""
+            <html>
+            <head><title>Access Denied</title></head>
+            <body style="font-family: sans-serif; padding: 2rem; text-align: center;">
+                <h1 style="color: red;">🚫 Access Denied</h1>
+                <p>You are logged in as <strong>@{session['user']}</strong>.</p>
+                <p>You do not have permission to edit <strong>@{username}</strong>'s garden.</p>
+                
+                <hr style="margin: 2rem 0;">
+                
+                <div style="display: flex; gap: 20px; justify-content: center;">
+                    <a href="/@{session['user']}/" style="background: #4CAF50; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">Go to My Garden 🐂</a>
+                    <a href="/" style="background: #2196F3; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">Bullpen Home 🏠</a>
+                    <a href="/logout" style="background: #f44336; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px;">Logout 🚪</a>
+                </div>
+            </body>
+            </html>
+            """
+            return html, 403
 
     # Validation
     if not username or username not in os.listdir(AGORA_ROOT):

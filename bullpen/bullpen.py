@@ -5,6 +5,7 @@ import socket
 import threading
 import logging
 import requests
+import tempfile
 from flask import Flask, request, Response, abort
 
 # Configuration
@@ -13,6 +14,7 @@ BULL_BINARY = os.path.expanduser("~/go/bin/bull")
 PORT_RANGE_START = 6000
 PORT_RANGE_END = 7000
 IDLE_TIMEOUT_SECONDS = 600 # 10 minutes
+ASSET_USER = '_assets'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("bullpen")
@@ -20,16 +22,21 @@ logger = logging.getLogger("bullpen")
 app = Flask(__name__)
 
 class BullInstance:
-    def __init__(self, username, port):
+    def __init__(self, username, port, custom_path=None):
         self.username = username
         self.port = port
         self.process = None
         self.last_active = time.time()
+        self.custom_path = custom_path
 
     def start(self):
-        garden_path = os.path.join(AGORA_ROOT, self.username)
+        garden_path = self.custom_path if self.custom_path else os.path.join(AGORA_ROOT, self.username)
+        
         if not os.path.isdir(garden_path):
-            raise FileNotFoundError(f"Garden not found for {self.username}")
+            if self.username == ASSET_USER:
+                 os.makedirs(garden_path, exist_ok=True)
+            else:
+                 raise FileNotFoundError(f"Garden not found for {self.username}")
 
         cmd = [BULL_BINARY, "-content", garden_path, "serve", f"-listen=127.0.0.1:{self.port}", f"-root=/@{self.username}"]
         logger.info(f"Starting bull for {self.username} on port {self.port}: {' '.join(cmd)}")
@@ -105,13 +112,49 @@ def get_or_create_instance(username):
             used_ports.remove(port)
             raise e
 
+def ensure_asset_instance():
+    """Ensures the special _assets instance is running."""
+    with instances_lock:
+        if ASSET_USER in instances:
+            inst = instances[ASSET_USER]
+            if inst.process and inst.process.poll() is None:
+                return # Already running
+            else:
+                inst.stop()
+                if inst.port in used_ports: used_ports.remove(inst.port)
+                del instances[ASSET_USER]
+
+        # Create temp dir for assets
+        asset_dir = os.path.join(tempfile.gettempdir(), 'agora_bull_assets')
+        os.makedirs(asset_dir, exist_ok=True)
+        
+        port = get_free_port()
+        used_ports.add(port)
+        instance = BullInstance(ASSET_USER, port, custom_path=asset_dir)
+        try:
+            instance.start()
+            instances[ASSET_USER] = instance
+            logger.info(f"Started asset instance on port {port}")
+        except Exception as e:
+            used_ports.remove(port)
+            logger.error(f"Failed to start asset instance: {e}")
+
 def reaper_loop():
     while True:
+        # Ensure asset instance is alive every loop
+        try:
+            ensure_asset_instance()
+        except Exception as e:
+            logger.error(f"Error checking asset instance: {e}")
+
         time.sleep(60)
         now = time.time()
         with instances_lock:
             to_remove = []
             for username, instance in instances.items():
+                if username == ASSET_USER:
+                    continue # Never reap the asset instance
+
                 if now - instance.last_active > IDLE_TIMEOUT_SECONDS:
                     logger.info(f"Reaping idle instance for {username}")
                     instance.stop()
@@ -124,6 +167,9 @@ def reaper_loop():
 # Start reaper in background
 reaper_thread = threading.Thread(target=reaper_loop, daemon=True)
 reaper_thread.start()
+
+# Initial asset instance start
+ensure_asset_instance()
 
 @app.route('/')
 def index():
@@ -143,9 +189,10 @@ def index():
     
     if active_users:
         for user in active_users:
+            if user == ASSET_USER: continue
             html += f'<li><a href="/@{user}/">@{user}</a></li>'
     else:
-        html += "<li><em>No active instances.</em></li>"
+        html += "<li><em>No active user instances.</em></li>"
         
     html += """
         </ul>
@@ -158,17 +205,19 @@ def index():
 
 @app.route('/_bull/<path:path>', methods=["GET"])
 def proxy_bull_assets(path):
-    # Find any active instance to serve static assets
+    # Always prefer the dedicated asset instance
     instance = None
     with instances_lock:
-        if instances:
-            # Pick the most recently active one
+        instance = instances.get(ASSET_USER)
+        # Fallback to any other instance if asset instance is dead (shouldn't happen)
+        if not instance and instances:
             instance = max(instances.values(), key=lambda i: i.last_active)
     
     if not instance:
         return "No active bull instances to serve assets", 404
 
     target_url = f"http://127.0.0.1:{instance.port}/_bull/{path}"
+
     if request.query_string:
         target_url += f"?{request.query_string.decode('utf-8')}"
 

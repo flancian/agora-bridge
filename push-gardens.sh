@@ -24,8 +24,16 @@ while true; do
             # Check if remote is our hosted forge.
             # This is critical to avoid trying to push to external repos (GitHub/GitLab)
             # where we definitely don't have write access.
-            if git remote get-url origin 2>/dev/null | grep -q "git.anagora.org"; then
+            REMOTE_URL=$(git remote get-url origin 2>/dev/null)
+            if echo "$REMOTE_URL" | grep -q "git.anagora.org"; then
                 
+                # Auto-fix: Convert HTTPS to SSH for push access
+                if [[ "$REMOTE_URL" == https://git.anagora.org/* ]]; then
+                     NEW_URL=$(echo "$REMOTE_URL" | sed 's|https://git.anagora.org/|git@git.anagora.org:|')
+                     echo "  🔄 Converting remote to SSH: $NEW_URL"
+                     git remote set-url origin "$NEW_URL"
+                fi
+
                 # Check for uncommitted changes (modified, added, deleted)
                 # OR if local main is ahead of origin/main (committed but not pushed)
                 CHANGES=$(git status --porcelain)

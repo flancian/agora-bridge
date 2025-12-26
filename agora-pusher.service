@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/flancian/agora-bridge
-ExecStart=/home/flancian/agora-bridge/push_gardens.sh
+ExecStart=/home/flancian/agora-bridge/push-gardens.sh
 Restart=always
 RestartSec=60
 

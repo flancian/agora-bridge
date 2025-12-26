@@ -316,7 +316,7 @@ def provision_garden():
     
     target = f"garden/{username}"
     new_source = {
-        'url': clone_url,
+        'url': web_url, # Use HTTPS for public read access (pull.py)
         'target': target,
         'format': 'markdown', # Default for hosted gardens
         'web': web_url 

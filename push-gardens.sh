@@ -14,7 +14,7 @@ if [[ "$1" == "--once" || "$1" == "-1" ]]; then
     echo "Running once..."
 fi
 
-while true; do
+sync_gardens() {
     # Iterate through all directories in garden/
     # We use find to safely handle potential spaces in filenames, though unlikely for usernames
     for d in "$GARDEN_ROOT"/*; do
@@ -63,11 +63,15 @@ while true; do
             fi
         fi
     done
-    
-    if [ "$ONCE" = true ]; then
-        break
-    fi
-    
-    # Wait before next cycle
-    sleep 60
-done
+}
+
+# Run immediately on start
+sync_gardens
+
+# If not running once, enter the loop
+if [ "$ONCE" = false ]; then
+    while true; do
+        sleep 60
+        sync_gardens
+    done
+fi

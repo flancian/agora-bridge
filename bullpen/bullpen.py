@@ -6,7 +6,8 @@ import threading
 import logging
 import requests
 import tempfile
-from flask import Flask, request, Response, abort
+from flask import Flask, request, Response, abort, session, redirect, url_for
+from authlib.integrations.flask_client import OAuth
 
 # Configuration
 AGORA_ROOT = os.path.expanduser("~/agora/garden")
@@ -16,10 +17,32 @@ PORT_RANGE_END = 7000
 IDLE_TIMEOUT_SECONDS = 600 # 10 minutes
 ASSET_USER = '_assets'
 
+# Auth Config
+CLIENT_ID = os.environ.get('AGORA_OAUTH_CLIENT_ID')
+CLIENT_SECRET = os.environ.get('AGORA_OAUTH_CLIENT_SECRET')
+SECRET_KEY = os.environ.get('FLASK_SECRET_KEY', 'dev_key_please_change')
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("bullpen")
 
 app = Flask(__name__)
+app.secret_key = SECRET_KEY
+
+# OAuth Setup
+oauth = OAuth(app)
+if CLIENT_ID and CLIENT_SECRET:
+    oauth.register(
+        name='forgejo',
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        api_base_url='https://git.anagora.org/api/v1/',
+        access_token_url='https://git.anagora.org/login/oauth/access_token',
+        authorize_url='https://git.anagora.org/login/oauth/authorize',
+        client_kwargs={'scope': 'read:user'},
+    )
+else:
+    logger.warning("OAuth credentials not found. Auth will be disabled/broken.")
+
 
 class BullInstance:
     def __init__(self, username, port, custom_path=None):
@@ -175,15 +198,51 @@ reaper_thread.start()
 # Initial asset instance start
 ensure_asset_instance()
 
+@app.route('/login')
+def login():
+    if not CLIENT_ID:
+        return "OAuth not configured", 500
+    redirect_uri = url_for('auth_callback', _external=True)
+    return oauth.forgejo.authorize_redirect(redirect_uri)
+
+@app.route('/auth/callback')
+def auth_callback():
+    token = oauth.forgejo.authorize_access_token()
+    resp = oauth.forgejo.get('user', token=token)
+    user_info = resp.json()
+    username = user_info.get('username') or user_info.get('login')
+    
+    if username:
+        session['user'] = username
+        return redirect(f"/@{username}/")
+    return "Failed to fetch user info", 400
+
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect('/')
+
 @app.route('/')
 def index():
     with instances_lock:
         active_users = list(instances.keys())
     
+    current_user = session.get('user')
+    
     html = """
     <html>
     <head><title>Agora Bullpen</title></head>
     <body style="font-family: sans-serif; padding: 2rem;">
+        <div style="float: right;">
+    """
+    
+    if current_user:
+        html += f"Logged in as <strong>{current_user}</strong> | <a href='/logout'>Logout</a>"
+    else:
+        html += "<a href='/login'>Login with Agora Git</a>"
+        
+    html += """
+        </div>
         <h1>🐂 Agora Bullpen</h1>
         <p>The Bullpen manages active editor instances.</p>
         
@@ -221,7 +280,6 @@ def proxy_bull_assets(path):
         return "No active bull instances to serve assets", 404
 
     target_url = f"http://127.0.0.1:{instance.port}/_bull/{path}"
-
     if request.query_string:
         target_url += f"?{request.query_string.decode('utf-8')}"
 
@@ -246,6 +304,14 @@ def proxy_bull_assets(path):
 @app.route('/@<username>/', defaults={'path': ''}, methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 @app.route('/@<username>/<path:path>', methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 def proxy(username, path):
+    # Auth Check
+    # Allow asset user (internal) explicitly if needed, but usually it's not accessed via this route
+    if username != ASSET_USER:
+        if 'user' not in session:
+            return redirect('/login')
+        if session['user'] != username:
+            return f"Access Denied: You are logged in as {session['user']} but trying to edit {username}'s garden.", 403
+
     # Validation
     if not username or username not in os.listdir(AGORA_ROOT):
          return "User garden not found", 404

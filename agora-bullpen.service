@@ -9,6 +9,10 @@ Restart=always
 RestartSec=5
 # Environment variables can be added here if needed
 # Environment=AGORA_ROOT=%h/agora/garden
+# OAuth Configuration (Forgejo)
+# Environment=AGORA_OAUTH_CLIENT_ID=your_client_id_here
+# Environment=AGORA_OAUTH_CLIENT_SECRET=your_client_secret_here
+# Environment=FLASK_SECRET_KEY=generate_a_random_secret_here
 
 [Install]
 WantedBy=default.target

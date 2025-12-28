@@ -13,8 +13,8 @@
 Description=Agora Bridge API, providing endpoints for the Agora.
 
 [Service]
-WorkingDirectory=/home/agora/agora-bridge
-ExecStart=/home/agora/agora-bridge/run-api-prod.sh
+WorkingDirectory=%h/agora-bridge
+ExecStart=%h/agora-bridge/run-api-prod.sh
 Restart=always
 RestartSec=3
 

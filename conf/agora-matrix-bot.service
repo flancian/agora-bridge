@@ -13,7 +13,7 @@
 Description=Agora Matrix Bot (Maubot)
 
 [Service]
-WorkingDirectory=/home/agora/agora-bridge/bots/matrix
+WorkingDirectory=%h/agora-bridge/bots/matrix
 # Assuming maubot is installed in a venv or globally available; adjust as needed.
 # This might need a specific run script if one doesn't exist.
 ExecStart=/usr/bin/maubot -c config.yaml

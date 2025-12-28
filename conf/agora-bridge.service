@@ -13,8 +13,8 @@
 Description=Agora Bridge, see https://github.com/flancian/agora-bridge.
 
 [Service]
-WorkingDirectory=/home/agora/agora-bridge
-ExecStart=/home/agora/agora-bridge/run-prod.sh
+WorkingDirectory=%h/agora-bridge
+ExecStart=%h/agora-bridge/run-prod.sh
 Restart=always
 RestartSec=3
 

@@ -13,8 +13,8 @@
 Description=Agora Mastodon Bot
 
 [Service]
-WorkingDirectory=/home/agora/agora-bridge
-ExecStart=/home/agora/agora-bridge/run-mastodon-bot-prod.sh
+WorkingDirectory=%h/agora-bridge
+ExecStart=%h/agora-bridge/run-mastodon-bot-prod.sh
 Restart=always
 RestartSec=10
 

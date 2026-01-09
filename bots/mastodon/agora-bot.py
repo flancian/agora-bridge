@@ -76,7 +76,10 @@ class AgoraBot(StreamListener):
 
     def send_toot(self, msg, in_reply_to_id=None):
         L.info('sending toot.')
-        status = self.mastodon.status_post(msg, in_reply_to_id=in_reply_to_id)
+        try:
+            status = self.mastodon.status_post(msg, in_reply_to_id=in_reply_to_id)
+        except MastodonAPIError as e:
+            L.error(f"Could not send toot: {e}")
 
     def boost_toot(self, id):
         L.info('boosting toot.')

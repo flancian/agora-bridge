@@ -241,24 +241,31 @@ class AgoraBot(object):
         for mutual_did, handle in self.get_mutuals().items():
             L.info(f'-> Processing posts by {handle} ({mutual_did})...')
             try:
-                posts = self.client.app.bsky.feed.post.list(repo=mutual_did, limit=100)
+                # Use get_author_feed (AppView) instead of listRecords (PDS) for better federation support
+                feed_response = self.client.get_author_feed(actor=mutual_did, limit=100)
             except Exception as e:
-                # Log full details for all errors to debug the "repo not found" issue
+                # Handle "Could not find repo" or other 400 errors gracefully
                 if 'status_code=400' in str(e) or 'Could not find repo' in str(e):
-                    L.warning(f"Repo lookup failed for {handle} ({mutual_did}). Full error: {e}")
+                    L.warning(f"Feed fetch failed for {handle} ({mutual_did}). Full error: {e}")
                 else:
-                    L.error(f"Error fetching posts for {handle} ({mutual_did}): {e}")
+                    L.error(f"Error fetching feed for {handle} ({mutual_did}): {e}")
                 continue
 
-            for uri, post in posts.records.items():
+            for item in feed_response.feed:
+                post = item.post
+                record = post.record # This is the actual post data (text, createdAt)
+                uri = post.uri
+                
                 try:
-                    # Some records might not have 'indexed_at' or 'text'
-                    if not hasattr(post, 'indexed_at') or not hasattr(post, 'text'):
+                    # indexed_at is on the post view, but createdAt is in the record. 
+                    # record.created_at is the client-reported time.
+                    # We can use post.indexed_at (server time) if available, or record.created_at.
+                    # post.indexed_at is a string ISO timestamp.
+                    timestamp_str = post.indexed_at or record.created_at
+                    if not timestamp_str:
                         continue
 
-                    # indexed_at is typically ISO 8601 like "2023-10-26T12:00:00.000Z"
-                    # We handle the Z manually for compatibility.
-                    post_date = datetime.fromisoformat(post.indexed_at.replace('Z', '+00:00'))
+                    post_date = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 except (ValueError, TypeError, AttributeError):
                     continue
                 
@@ -266,16 +273,23 @@ class AgoraBot(object):
                     # Skip old posts
                     continue
 
-                wikilinks = WIKILINK_RE.findall(post.text)
+                # Check text in the record
+                if not hasattr(record, 'text'):
+                    continue
+
+                wikilinks = WIKILINK_RE.findall(record.text)
                 if wikilinks:
                     entities = uniq(wikilinks)
-                    L.info(f'\nSaw wikilinks at {uri} ({post.indexed_at}):\n{post.text}\n')
+                    L.info(f'\nSaw wikilinks at {uri} ({timestamp_str}):\n{record.text}\n')
                     msg = self.build_reply(entities)
                     L.info(f'\nWould respond with:\n{msg.build_text()}\n--\n')
-                    # atproto somehow needs this kind of post and not the... other?
+                    
+                    # We already have the 'actual_post' object (it's 'post'), so we can pass it directly
+                    # providing it matches what maybe_reply expects (models.AppBskyFeedDefs.PostView)
+                    # The previous code fetched it again using get_posts, but maybe_reply calls 
+                    # models.create_strong_ref(post). create_strong_ref accepts PostView.
                     try:
-                        actual_post = self.client.get_posts([uri]).posts[0]
-                        self.maybe_reply(uri, actual_post, msg, entities)
+                        self.maybe_reply(uri, post, msg, entities)
                     except Exception as e:
                         L.error(f"Error fetching/processing post details: {e}")
             

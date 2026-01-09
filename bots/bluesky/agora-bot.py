@@ -201,18 +201,18 @@ class AgoraBot(object):
         return follows
 
     def get_mutuals(self):
-        # Note we'll return a set of DIDs (type hints to the rescue? eventually... :))
-        mutuals = set()
+        # Return a dict of {did: handle} for mutuals
+        mutuals = {}
         follows = self.get_follows()
         followers = self.get_followers()
         
-        # Optimization: Use a set for faster lookups
-        follow_dids = {f.did for f in follows}
+        # Optimization: Map DID -> Handle for people we follow
+        following_map = {f.did: f.handle for f in follows}
         
         for follower in followers: 
-            if follower.did in follow_dids:
+            if follower.did in following_map:
                 # Ahoy matey!
-                mutuals.add(follower.did)
+                mutuals[follower.did] = follower.handle
 
         return mutuals
 
@@ -229,25 +229,26 @@ class AgoraBot(object):
                 L.info(f'-> Trying to follow back {follower.handle}')
                 try:
                     self.client.follow(follower.did)
-                    # Add to local mutuals set so we don't try again immediately if logic changes
-                    mutuals.add(follower.did) 
+                    # Add to local mutuals (best effort)
+                    mutuals[follower.did] = follower.handle
                 except Exception as e:
                     L.error(f"Error following {follower.handle}: {e}")
 
     def catch_up(self):
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
 
-        for mutual_did in self.get_mutuals():
-            L.info(f'-> Processing posts by {mutual_did}...')
+        # Iterate over items (did, handle)
+        for mutual_did, handle in self.get_mutuals().items():
+            L.info(f'-> Processing posts by {handle} ({mutual_did})...')
             try:
                 posts = self.client.app.bsky.feed.post.list(repo=mutual_did, limit=100)
             except Exception as e:
                 # Handle "Could not find repo" or other 400 errors gracefully
                 # The exception string usually contains the status code
                 if 'status_code=400' in str(e) or 'Could not find repo' in str(e):
-                    L.warning(f"Could not find repo for {mutual_did} (likely deleted/suspended). Skipping.")
+                    L.warning(f"Could not find repo for {handle} ({mutual_did}). Likely deleted/suspended. Skipping.")
                 else:
-                    L.error(f"Error fetching posts for {mutual_did}: {e}")
+                    L.error(f"Error fetching posts for {handle} ({mutual_did}): {e}")
                 continue
 
             for uri, post in posts.records.items():
@@ -278,6 +279,8 @@ class AgoraBot(object):
                         self.maybe_reply(uri, actual_post, msg, entities)
                     except Exception as e:
                         L.error(f"Error fetching/processing post details: {e}")
+            
+            L.debug(f"Finished processing {mutual_did}.")
 
 def main():
     # How much to sleep between runs, in seconds (this may go away once we're using a subscription model?).

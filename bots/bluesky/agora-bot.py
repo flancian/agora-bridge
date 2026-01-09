@@ -243,10 +243,9 @@ class AgoraBot(object):
             try:
                 posts = self.client.app.bsky.feed.post.list(repo=mutual_did, limit=100)
             except Exception as e:
-                # Handle "Could not find repo" or other 400 errors gracefully
-                # The exception string usually contains the status code
+                # Log full details for all errors to debug the "repo not found" issue
                 if 'status_code=400' in str(e) or 'Could not find repo' in str(e):
-                    L.warning(f"Could not find repo for {handle} ({mutual_did}). Likely deleted/suspended. Skipping.")
+                    L.warning(f"Repo lookup failed for {handle} ({mutual_did}). Full error: {e}")
                 else:
                     L.error(f"Error fetching posts for {handle} ({mutual_did}): {e}")
                 continue

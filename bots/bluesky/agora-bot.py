@@ -160,22 +160,34 @@ class AgoraBot(object):
         followers = []
         cursor = None
         while True:
-            response = self.client.get_followers(self.config['user'], cursor=cursor)
-            followers.extend(response.followers)
-            if not response.cursor:
+            try:
+                response = self.client.get_followers(self.config['user'], cursor=cursor)
+                followers.extend(response.followers)
+                if not response.cursor:
+                    break
+                cursor = response.cursor
+                # Sleep briefly to avoid timeouts/rate limits during heavy pagination
+                time.sleep(0.1)
+            except Exception as e:
+                L.error(f"Error fetching followers page: {e}")
                 break
-            cursor = response.cursor
         return followers
 
     def get_follows(self):
         follows = []
         cursor = None
         while True:
-            response = self.client.get_follows(self.config['user'], cursor=cursor)
-            follows.extend(response.follows)
-            if not response.cursor:
+            try:
+                response = self.client.get_follows(self.config['user'], cursor=cursor)
+                follows.extend(response.follows)
+                if not response.cursor:
+                    break
+                cursor = response.cursor
+                # Sleep briefly to avoid timeouts/rate limits during heavy pagination
+                time.sleep(0.1)
+            except Exception as e:
+                L.error(f"Error fetching follows page: {e}")
                 break
-            cursor = response.cursor
         return follows
 
     def get_mutuals(self):
@@ -195,12 +207,22 @@ class AgoraBot(object):
         return mutuals
 
     def follow_followers(self):
-        for follower in self.get_followers():
-            if follower.did in self.get_mutuals():
+        followers = self.get_followers()
+        mutuals = self.get_mutuals()
+        
+        L.info(f"Checking {len(followers)} followers for follow-back candidates...")
+        
+        for follower in followers:
+            if follower.did in mutuals:
                 L.info(f'-> We already follow {follower.handle}')
             else:
                 L.info(f'-> Trying to follow back {follower.handle}')
-                self.client.follow(follower.did)
+                try:
+                    self.client.follow(follower.did)
+                    # Add to local mutuals set so we don't try again immediately if logic changes
+                    mutuals.add(follower.did) 
+                except Exception as e:
+                    L.error(f"Error following {follower.handle}: {e}")
 
     def catch_up(self):
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)

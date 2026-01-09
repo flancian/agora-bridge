@@ -64,7 +64,7 @@ dependencies = [
     "typing-inspection==0.4.1",
     "typish==1.9.3",
     "urllib3==2.5.0",
-    "websockets==13.1",
+    "websockets==15.0.1",
     "werkzeug==3.1.3",
 ]
 

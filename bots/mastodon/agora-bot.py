@@ -421,12 +421,18 @@ def main():
 
         # YOLO -- working around a potential bug after the move to GoToSocial :)
         followers = bot.get_followers()
-        L.info(f'Followers: {followers}')
+        L.info(f'Followers count: {len(followers)}')
         for user in followers:
-            L.info(f'Trying to follow back {user.acct}')
+            # Check relationship status to avoid redundant follow attempts.
+            # This is not perfectly efficient (N+1 queries) but acceptable for current scale.
+            # A better approach would be to batch check relationships if the library/API supports it easily.
             try:
-                mastodon.account_follow(user.id)
-            except MastodonAPIError:
+                relationships = mastodon.account_relationships([user.id])
+                if relationships and not relationships[0].following:
+                    L.info(f'Trying to follow back {user.acct}')
+                    mastodon.account_follow(user.id)
+            except MastodonAPIError as e:
+                L.warning(f"Error checking relationship or following {user.acct}: {e}")
                 pass
 
             if args.catch_up:

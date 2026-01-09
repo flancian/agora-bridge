@@ -8,6 +8,7 @@ import time
 import subprocess
 import urllib
 import yaml
+from datetime import datetime, timedelta, timezone
 
 # #go https://github.com/MarshalX/atproto
 from atproto import Client, client_utils, models
@@ -17,6 +18,8 @@ parser.add_argument('--config', dest='config', type=argparse.FileType('r'), requ
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
 parser.add_argument('--output-dir', dest='output_dir', required=True, help='The path to a directory where data will be dumped as needed. If it does not exist, we will try to create it.')
 parser.add_argument('--write', dest='write', action="store_true", help='Whether to actually post (default, when this is off, is dry run.')
+parser.add_argument('--catch-up-days', dest='catch_up_days', type=int, default=180, help='Max age in days for posts to process.')
+parser.add_argument('--reply-interval', dest='reply_interval', type=float, default=10.0, help='Minimum seconds between replies.')
 args = parser.parse_args()
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
@@ -60,6 +63,7 @@ class AgoraBot(object):
         self.client.login(self.config['user'], self.config['password'])
 
         self.me = self.client.resolve_handle(self.config['user'])
+        self.last_reply_time = 0
 
     def build_reply(self, entities):
         # always at-mention at least the original author.
@@ -78,13 +82,13 @@ class AgoraBot(object):
         rkey = match.group(2)
         return f'{base}/profile/{profile}/post/{rkey}'
 
-    def log_post(self, uri, post, entities):
+    def log_post(self, uri, post, entities, check_only=False):
         url = self.post_uri_to_url(uri)
 
         if not args.output_dir:
             return False
 
-        if not args.write:
+        if not args.write and not check_only:
             L.info(f'Here we would log a link to {url} in nodes {entities}.')
 
         for node in entities:
@@ -100,15 +104,18 @@ class AgoraBot(object):
             try:
                 with open(bot_stream_filename, 'r') as note:
                     note = note.read()
-                    L.info(f"In note: {note}.")
+                    L.debug(f"In note: {note}.")
                     if note and url in note:
                         L.info("Post already logged to note.")
                         return False
                     else:
                         if args.write:
-                            L.info("Post will be logged to note.")
+                            L.debug("Post will be logged to note.")
             except FileNotFoundError:
                 pass
+
+            if check_only:
+                continue
 
             # try to append.
             try:
@@ -123,12 +130,29 @@ class AgoraBot(object):
         
     def maybe_reply(self, uri, post, msg, entities):
         L.info(f'Would reply to {post} with {msg.build_text()}')
+        
+        # Check if already processed
+        if not self.log_post(uri, post, entities, check_only=True):
+             L.info("Skipping reply (already logged).")
+             return
+
         ref = models.create_strong_ref(post)
         if args.write:
-            # Only actually write if we haven't written before (from the PoV of the current agora).
-            # log_post should return false if we have already written a link to node previously.
-            if self.log_post(uri, post, entities):
+            # Throttle
+            now = time.time()
+            elapsed = now - self.last_reply_time
+            if elapsed < args.reply_interval:
+                sleep_time = args.reply_interval - elapsed
+                L.info(f"Throttling reply, sleeping for {sleep_time:.2f}s...")
+                time.sleep(sleep_time)
+
+            try:
                 self.client.send_post(msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=ref, root=ref))
+                self.last_reply_time = time.time()
+                # Log to disk after success
+                self.log_post(uri, post, entities)
+            except Exception as e:
+                L.error(f"Error sending Bluesky post: {e}")
         else:
             L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
 
@@ -177,19 +201,40 @@ class AgoraBot(object):
                 self.client.follow(follower.did)
 
     def catch_up(self):
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
+
         for mutual_did in self.get_mutuals():
             L.info(f'-> Processing posts by {mutual_did}...')
-            posts = self.client.app.bsky.feed.post.list(mutual_did, limit=100)
+            try:
+                posts = self.client.app.bsky.feed.post.list(repo=mutual_did, limit=100)
+            except Exception as e:
+                L.error(f"Error fetching posts for {mutual_did}: {e}")
+                continue
+
             for uri, post in posts.records.items():
+                try:
+                    # indexed_at is typically ISO 8601 like "2023-10-26T12:00:00.000Z"
+                    # We handle the Z manually for compatibility.
+                    post_date = datetime.fromisoformat(post.indexed_at.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    continue
+                
+                if post_date < cutoff_date:
+                    # Skip old posts
+                    continue
+
                 wikilinks = WIKILINK_RE.findall(post.text)
                 if wikilinks:
                     entities = uniq(wikilinks)
-                    L.info(f'\nSaw wikilinks at {uri}:\n{post.text}\n')
+                    L.info(f'\nSaw wikilinks at {uri} ({post.indexed_at}):\n{post.text}\n')
                     msg = self.build_reply(entities)
                     L.info(f'\nWould respond with:\n{msg.build_text()}\n--\n')
                     # atproto somehow needs this kind of post and not the... other?
-                    actual_post = self.client.get_posts([uri]).posts[0]
-                    self.maybe_reply(uri, actual_post, msg, entities)
+                    try:
+                        actual_post = self.client.get_posts([uri]).posts[0]
+                        self.maybe_reply(uri, actual_post, msg, entities)
+                    except Exception as e:
+                        L.error(f"Error fetching/processing post details: {e}")
 
 def main():
     # How much to sleep between runs, in seconds (this may go away once we're using a subscription model?).

@@ -157,38 +157,40 @@ class AgoraBot(object):
             L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
 
     def get_followers(self):
-        return self.client.get_followers(self.config['user'])['followers']
+        followers = []
+        cursor = None
+        while True:
+            response = self.client.get_followers(self.config['user'], cursor=cursor)
+            followers.extend(response.followers)
+            if not response.cursor:
+                break
+            cursor = response.cursor
+        return followers
 
     def get_follows(self):
-        return self.client.get_follows(self.config['user'])['follows']
+        follows = []
+        cursor = None
+        while True:
+            response = self.client.get_follows(self.config['user'], cursor=cursor)
+            follows.extend(response.follows)
+            if not response.cursor:
+                break
+            cursor = response.cursor
+        return follows
 
     def get_mutuals(self):
         # Note we'll return a set of DIDs (type hints to the rescue? eventually... :))
         mutuals = set()
         follows = self.get_follows()
         followers = self.get_followers()
+        
+        # Optimization: Use a set for faster lookups
+        follow_dids = {f.did for f in follows}
+        
         for follower in followers: 
-            if follower.did in [f.did for f in follows]:
+            if follower.did in follow_dids:
                 # Ahoy matey!
                 mutuals.add(follower.did)
-
-        # This is no longer needed but remains an example of working with cursors.
-        #    cursor = ''
-        #    # This work but it is quite inefficient to check for mutualness as some accounts follow *a lot* of people.
-        #    while True:
-        #        L.info(f'Processing following list for {follower.handle} with cursor {cursor}')
-        #        follows = self.client.get_follows(follower.did, limit=100, cursor=cursor)
-        #        for following in follows:
-        #            if following[0] == 'follows':
-        #                for follow in following[1]:
-        #                    # L.info(f'{follow.did}')
-        #                    if follow.did == self.me.did:
-        #                        # Ahoy matey!
-        #                        L.info(f'{follower.handle} follows us!')
-        #                        mutuals.add(follower.did)
-        #        cursor = follows.cursor
-        #        if not cursor:
-        #           break 
 
         return mutuals
 
@@ -208,7 +210,12 @@ class AgoraBot(object):
             try:
                 posts = self.client.app.bsky.feed.post.list(repo=mutual_did, limit=100)
             except Exception as e:
-                L.error(f"Error fetching posts for {mutual_did}: {e}")
+                # Handle "Could not find repo" or other 400 errors gracefully
+                # The exception string usually contains the status code
+                if 'status_code=400' in str(e) or 'Could not find repo' in str(e):
+                    L.warning(f"Could not find repo for {mutual_did} (likely deleted/suspended). Skipping.")
+                else:
+                    L.error(f"Error fetching posts for {mutual_did}: {e}")
                 continue
 
             for uri, post in posts.records.items():

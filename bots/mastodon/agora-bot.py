@@ -93,7 +93,11 @@ class AgoraBot(StreamListener):
             self.last_reply_time = time.time()
             return True
         except MastodonAPIError as e:
-            L.error(f"Could not send toot: {e}")
+            L.error(f"Could not send toot. Full error: {e}")
+            if hasattr(e, 'args') and len(e.args) >= 2:
+                L.error(f"API Status Code: {e.args[1]}")
+            if hasattr(e, 'args') and len(e.args) >= 4:
+                L.error(f"API Error Body: {e.args[3]}")
             return False
 
     def boost_toot(self, id):

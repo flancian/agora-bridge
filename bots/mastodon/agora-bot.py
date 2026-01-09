@@ -27,7 +27,7 @@ import urllib
 import yaml
 
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
 
 # [[2022-11-17]]: changing approaches, bots should write by calling an Agora API; direct writing to disk was a hack.
@@ -49,6 +49,8 @@ parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help=
 parser.add_argument('--output-dir', dest='output_dir', required=True, help='The path to a directory where data will be dumped as needed. If it does not exist, we will try to create it.')
 parser.add_argument('--dry-run', dest='dry_run', action="store_true", help='Whether to refrain from posting or making changes.')
 parser.add_argument('--catch-up', dest='catch_up', action="store_true", help='Whether to run code to catch up on missed toots (e.g. because we were down for a bit, or because this is a new bot instance.')
+parser.add_argument('--catch-up-days', dest='catch_up_days', type=int, default=180, help='Max age in days for posts to process during catch-up.')
+parser.add_argument('--reply-interval', dest='reply_interval', type=float, default=10.0, help='Minimum seconds between replies to avoid throttling.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -72,14 +74,27 @@ class AgoraBot(StreamListener):
         StreamListener.__init__(self)
         self.mastodon = mastodon
         self.bot_username = bot_username
+        self.last_reply_time = 0
         L.info(f'[[agora bot]] for {bot_username} started!')
 
     def send_toot(self, msg, in_reply_to_id=None):
         L.info('sending toot.')
+        
+        # Throttle replies to avoid hitting rate limits.
+        now = time.time()
+        elapsed = now - self.last_reply_time
+        if elapsed < args.reply_interval:
+            sleep_time = args.reply_interval - elapsed
+            L.info(f"Throttling reply, sleeping for {sleep_time:.2f}s...")
+            time.sleep(sleep_time)
+
         try:
             status = self.mastodon.status_post(msg, in_reply_to_id=in_reply_to_id)
+            self.last_reply_time = time.time()
+            return True
         except MastodonAPIError as e:
             L.error(f"Could not send toot: {e}")
+            return False
 
     def boost_toot(self, id):
         L.info('boosting toot.')
@@ -114,7 +129,7 @@ class AgoraBot(StreamListener):
         msg = '\n'.join(lines)
         return msg
 
-    def log_toot(self, toot, nodes):
+    def log_toot(self, toot, nodes, check_only=False):
         if not args.output_dir:
             # note this actually means that if output_dir is not set up this bot won't respond to messages,
             # as the caller currently thinks False -> do not post (to prevent duplicates).
@@ -132,16 +147,18 @@ class AgoraBot(StreamListener):
             try:
                 with open(bot_stream_filename, 'r') as note:
                     note = note.read()
-                    L.info(f"Note: {note}.")
                     # why both? it has been lost to the mists of time, or maybe the commit log :)
                     # perhaps uri is what's set in pleroma?
                     if note and (toot.url or toot.uri) in note:
-                        L.info("Toot already logged to note.")
+                        L.debug("Toot already logged to note.")
                         return False
                     else:
-                        L.info("Toot will be logged to note.")
+                        L.debug("Toot will be logged to note.")
             except FileNotFoundError:
                 pass
+
+            if check_only:
+                continue
 
             # try to append.
             try:
@@ -223,15 +240,22 @@ class AgoraBot(StreamListener):
             L.info(f"-> not replying due to dry run, message would be: {msg}")
             return False
 
-        # we use the log as a database :)
-        if self.log_toot(status, entities):
-            self.send_toot(msg, status.id)
-            # maybe write the full message to disk if the user seems to have opted in.
-            # one user -> one directory, as that allows us to easily transfer history to users.
-            # [[digital self determination]]
-            self.write_toot(status, entities)
+        # Check if we already logged this toot to avoid duplicate replies *before* sending.
+        # pass check_only=True so we don't write anything yet.
+        if not self.log_toot(status, entities, check_only=True):
+             L.info("-> not replying because toot is already logged/processed.")
+             return
+
+        # Try to send the toot first.
+        if self.send_toot(msg, status.id):
+             # If successful, then log it to disk.
+             self.log_toot(status, entities)
+             # maybe write the full message to disk if the user seems to have opted in.
+             # one user -> one directory, as that allows us to easily transfer history to users.
+             # [[digital self determination]]
+             self.write_toot(status, entities)
         else:
-            L.info("-> not replying due to failed or redundant logging, skipping to avoid duplicates.")
+            L.info("-> failed to send reply (throttled or error), not logging so we can retry later.")
 
     def get_followers(self):
         # First batching method, we will probably need more of these :)
@@ -242,12 +266,40 @@ class AgoraBot(StreamListener):
             batch = self.mastodon.fetch_next(batch)
         return followers
 
+    def get_following(self):
+        batch = self.mastodon.account_following(self.mastodon.me().id, limit=80)
+        following = []
+        while batch:
+            following += batch
+            batch = self.mastodon.fetch_next(batch)
+        return following
+
     def get_statuses(self, user):
         # Added on [[2025-03-23]] to work around weird Mastodon bug with sorting, and it seems generally useful so...
         batch = self.mastodon.account_statuses(user['id'], limit=40)
         posts = []
+        # Support for --catch-up-days to stop fetching extremely old posts.
+        # Mastodon timestamps are timezone-aware (UTC).
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
+
         while batch:
-            posts += batch
+            # If the newest post in this batch is already too old, we can stop entirely.
+            # (Assuming batch is ordered newest -> oldest, which is standard).
+            if batch[0].created_at < cutoff_date:
+                break
+
+            valid_batch = []
+            for post in batch:
+                if post.created_at >= cutoff_date:
+                    valid_batch.append(post)
+            
+            posts += valid_batch
+
+            # If we filtered out any posts, it means we hit the cutoff in this batch.
+            # No need to fetch further pages.
+            if len(valid_batch) < len(batch):
+                break
+
             batch = self.mastodon.fetch_next(batch)
         return posts
 
@@ -259,7 +311,7 @@ class AgoraBot(StreamListener):
         return True
 
     def handle_wikilink(self, status, match=None):
-        L.info(f'handling at least one wikilink: {status.content}, {match}')
+        L.debug(f'handling at least one wikilink: {status.content}, {match}')
 
         if status['reblog']:
             L.info(f'Not handling boost.')
@@ -276,15 +328,11 @@ class AgoraBot(StreamListener):
         self.maybe_reply(status, msg, entities)
 
     def handle_hashtag(self, status, match=None):
-        L.info(f'handling at least one hashtag: {status.content}, {match}')
+        L.debug(f'handling at least one hashtag: {status.content}, {match}')
         user = status['account']['acct']
-
-        # Update (2023-07-19): We want to only reply hashtag posts to accounts that opted in.
-        if not self.is_mentioned_in(user, 'opt in'):
-            return True
 
         # We want to only reply to accounts that follow us.
-        user = status['account']['acct']
+        # This implicitly handles the request to "stop processing" when they unfollow.
         if not self.is_following(user):
             return True
 
@@ -331,7 +379,7 @@ class AgoraBot(StreamListener):
         for regexp, handler in cmds:
             match = regexp.search(status.content)
             if match:
-                L.info(f'Got a status with a pattern! {status.url}')
+                L.info(f'Got a status with a pattern! {status.url} ({status.created_at})')
                 handler(status, match)
 
     def handle_follow(self, notification):
@@ -342,7 +390,7 @@ class AgoraBot(StreamListener):
     def handle_unfollow(self, notification):
         """Try to handle live unfollows of [[agora bot]]."""
         L.info('Got an unfollow!')
-        mastodon.account_follow(notification.account)
+        mastodon.account_unfollow(notification.account)
 
     def on_notification(self, notification):
         # we get this for explicit mentions.
@@ -452,6 +500,17 @@ def main():
                 for status in bot.get_statuses(user):
                     # this should handle deduping, so it's safe to always try to reply.
                     bot.handle_update(status)
+
+        # Cleanup: Unfollow users who have unfollowed us.
+        following = bot.get_following()
+        follower_ids = {u.id for u in followers}
+        for user in following:
+             if user.id not in follower_ids:
+                 L.info(f"User {user.acct} no longer follows us. Unfollowing.")
+                 try:
+                     mastodon.account_unfollow(user.id)
+                 except MastodonAPIError as e:
+                     L.warning(f"Error unfollowing {user.acct}: {e}")
 
         L.info('Sleeping...')
         time.sleep(30)

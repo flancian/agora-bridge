@@ -77,7 +77,7 @@ twitter = [
     "cachetools>=5.2.0",
 ]
 bluesky = [
-    "atproto==0.0.62",
+    "atproto==0.0.65",
 ]
 matrix = [
     # Assuming maubot is the key dependency.

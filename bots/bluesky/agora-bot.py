@@ -157,12 +157,16 @@ class AgoraBot(object):
             L.info(f'Skipping replying due to dry_run. Pass --write to actually write.')
 
     def get_followers(self):
+        L.info("Fetching followers...")
         followers = []
         cursor = None
+        page_count = 0
         while True:
             try:
+                page_count += 1
                 response = self.client.get_followers(self.config['user'], cursor=cursor)
                 followers.extend(response.followers)
+                L.debug(f"Fetched followers page {page_count}, total so far: {len(followers)}")
                 if not response.cursor:
                     break
                 cursor = response.cursor
@@ -171,15 +175,20 @@ class AgoraBot(object):
             except Exception as e:
                 L.error(f"Error fetching followers page: {e}")
                 break
+        L.info(f"Finished fetching {len(followers)} followers.")
         return followers
 
     def get_follows(self):
+        L.info("Fetching follows...")
         follows = []
         cursor = None
+        page_count = 0
         while True:
             try:
+                page_count += 1
                 response = self.client.get_follows(self.config['user'], cursor=cursor)
                 follows.extend(response.follows)
+                L.debug(f"Fetched follows page {page_count}, total so far: {len(follows)}")
                 if not response.cursor:
                     break
                 cursor = response.cursor
@@ -188,6 +197,7 @@ class AgoraBot(object):
             except Exception as e:
                 L.error(f"Error fetching follows page: {e}")
                 break
+        L.info(f"Finished fetching {len(follows)} follows.")
         return follows
 
     def get_mutuals(self):
@@ -242,10 +252,14 @@ class AgoraBot(object):
 
             for uri, post in posts.records.items():
                 try:
+                    # Some records might not have 'indexed_at' or 'text'
+                    if not hasattr(post, 'indexed_at') or not hasattr(post, 'text'):
+                        continue
+
                     # indexed_at is typically ISO 8601 like "2023-10-26T12:00:00.000Z"
                     # We handle the Z manually for compatibility.
                     post_date = datetime.fromisoformat(post.indexed_at.replace('Z', '+00:00'))
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, AttributeError):
                     continue
                 
                 if post_date < cutoff_date:

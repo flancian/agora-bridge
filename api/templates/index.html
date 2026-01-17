@@ -109,5 +109,29 @@
         <p class="empty">Agora database (<code>~/agora/agora.db</code>) not found.</p>
     {% endif %}
 
+    <h2>Service Health</h2>
+    {% if service_status %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for name, status in service_status.items() %}
+                <tr>
+                    <td><code>{{ name }}</code></td>
+                    <td style="font-weight: bold; color: {% if status == 'active' %}green{% elif status == 'inactive' %}gray{% else %}red{% endif %};">
+                        {{ status }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="empty">No services monitored.</p>
+    {% endif %}
+
 </body>
 </html>

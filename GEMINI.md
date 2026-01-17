@@ -84,3 +84,54 @@ We discussed how to secure `edit.anagora.org`. Currently, it is open.
 *   **Secure the Editor**: Implement the OAuth2 login flow in `bullpen.py`.
 *   **Monitor**: Watch the logs on `thecla` to ensure the Pusher service is reliably syncing changes over the next few days.
 
+## Session Summary (Gemini, 2025-12-28)
+
+
+
+*This section documents the formalization of the Bullpen's operational model.*
+
+
+
+### Summary of Changes Implemented
+
+
+
+1.  **Documentation**:
+
+    *   **`docs/BULLPEN.md`**: Created comprehensive documentation for the **Agora Bullpen**.
+
+    *   Detailed the architecture (multi-tenant proxy), setup prerequisites, systemd configuration, and the Nginx reverse proxy block required to serve `edit.anagora.org`.
+
+    *   Documented the user experience flow: Login -> Editor -> Git Sync.
+
+
+
+This ensures that the "Hosted Gardens" editing feature is not just functional but also reproducible and maintainable.
+
+
+
+## Session Summary (Gemini, 2026-01-17)
+
+
+
+*This section documents the verification of completed tasks and the start of observability improvements.*
+
+
+
+### Key Learnings & Codebase Insights
+
+
+
+-   **Forgejo OAuth2**: The Bullpen (`bullpen/bullpen.py`) successfully implements OAuth2 with Forgejo, securing the `edit.anagora.org` endpoint. This replaces the need for a fallback authentication method.
+
+-   **Bot Refactoring**: All bot scripts have been successfully refactored to run from the project root using `uv`. Shell scripts (`run-*-bot-*.sh`) in the root directory provide standardized entry points.
+
+
+
+### Summary of Changes Implemented
+
+
+
+1.  **Documentation Update**: Updated `GEMINI.md` to reflect that the "Secure the Editor" and "Refactor Bot Scripts" tasks are complete.
+
+2.  **Observability Planning**: Identified `api/agora.py` as the backend for the status page. Planned to add systemd service monitoring to report the health of the Agora bots (Mastodon, Bluesky, Twitter) on the status page.

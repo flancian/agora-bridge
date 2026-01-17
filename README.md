@@ -89,43 +89,65 @@ If you only need to work on a specific component, you can install its dependenci
 uv pip install -e .[mastodon]
 ```
 
-## Running the Bridge
+## Core Processes & Workers
 
-This project currently has two conventions for running scripts. Please check below to see where to run each command.
+An Agora Bridge is composed of several long-running processes or workers. The following scripts, located in the project root, are the canonical way to run them.
 
-### Running from the Project Root
+It is recommended to run each of these in a separate terminal or using a process manager like `systemd` or `supervisor` in production.
 
-The main worker, the web application, and other root-level scripts should be run from the root of the `agora-bridge` project.
+### 1. Pull Worker
 
-**Garden Puller (Worker):**
-```bash
-# from /home/flancian/agora-bridge/
-./run-dev.sh
-```
+This is the main content aggregation engine. It reads your garden configurations (e.g., `~/agora/sources.yaml`) and pulls updates from them into the Agora.
 
-**Web Status Dashboard:**
-```bash
-# from /home/flancian/agora-bridge/
-./run-web-dev.sh
-```
+-   **Run in Development:**
+    ```bash
+    ./run-dev.sh
+    ```
+-   **Run in Production:**
+    ```bash
+    ./run-prod.sh
+    ```
 
-### Running the Bots
+### 2. API Dashboard
 
-The easiest way to run the bots is to use the provided wrapper scripts from the project root. These scripts ensure the bots are run with the correct paths to their configurations.
+This runs a Flask web application that provides a status dashboard, showing the health of configured gardens and the state of the Agora database.
 
-**Example (Mastodon Bot):**
-Before running for the first time, you'll need to set up your configuration:
-```bash
-cp bots/mastodon/agora-bot.yaml.example bots/mastodon/agora-bot.yaml
-# ...then edit bots/mastodon/agora-bot.yaml with your credentials...
-```
+-   **Run in Development:**
+    ```bash
+    ./run-api-dev.sh
+    ```
+-   **Run in Production:**
+    ```bash
+    # (A production script for the API will be added in the future)
+    ```
 
-Then, you can run the bot with:
-```bash
-# from /home/flancian/agora-bridge/
-./run-mastodon-bot.sh --catch-up
-```
-Any arguments you add (like `--catch-up` or `--dry-run`) are passed directly to the bot script. The same pattern applies to the Bluesky bot (`./run-bluesky-bot.sh`).
+### 3. Social Media Bots
+
+These bots listen for activity on social platforms, reply to mentions of `[[wikilinks]]`, and log conversations back into the Agora. Before running a bot for the first time, you must copy its `.yaml.example` configuration file to `.yaml` and fill in your credentials.
+
+**Mastodon Bot**
+-   **Config:** `bots/mastodon/agora-bot.yaml`
+-   **Run in Development:** `./run-mastodon-bot-dev.sh`
+-   **Run in Production:** `./run-mastodon-bot-prod.sh`
+
+**Bluesky Bot**
+-   **Config:** `bots/bluesky/agora-bot.yaml`
+-   **Run in Development:** `./run-bluesky-bot-dev.sh`
+-   **Run in Production:** `./run-bluesky-bot-prod.sh`
+
+**Twitter Bot**
+-   **Config:** `bots/twitter/agora-bot.yaml`
+-   **Run in Development:** `./run-twitter-bot-dev.sh`
+-   **Run in Production:** `./run-twitter-bot-prod.sh`
+
+### 4. Feed Puller
+
+The `feed.py` script pulls content from Atom/RSS feeds, currently focused on Hypothes.is annotations.
+
+-   **Run Manually:**
+    ```bash
+    uv run python feed.py
+    ```
 
 ### Social Media Bots
 

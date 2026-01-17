@@ -74,6 +74,62 @@ def get_db_info():
         db_info['error'] = f"Database error: {e}"
         return db_info
 
+def get_services_status():
+    """Checks the status of Agora-related systemd services."""
+    # Try to find the conf directory relative to this file
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    conf_dir = os.path.join(base_dir, 'conf')
+    
+    current_app.logger.info(f"Looking for services in: {conf_dir}")
+    
+    services = []
+    if os.path.isdir(conf_dir):
+        try:
+            for f in os.listdir(conf_dir):
+                if f.endswith('.service'):
+                    services.append(f.replace('.service', ''))
+            current_app.logger.info(f"Found services in conf dir: {services}")
+        except Exception as e:
+            current_app.logger.error(f"Error listing conf dir: {e}")
+    else:
+        current_app.logger.warning(f"Conf dir not found at: {conf_dir}")
+    
+    # Absolute fallback if no services found or conf dir missing
+    if not services:
+        services = [
+            'agora-bridge',
+            'agora-bridge-api',
+            'agora-bullpen',
+            'agora-pusher',
+            'agora-mastodon-bot',
+            'agora-bluesky-bot',
+            'agora-matrix-bot',
+        ]
+        current_app.logger.info(f"Using fallback service list: {services}")
+
+    status_map = {}
+    for svc in sorted(list(set(services))):
+        try:
+            # Check --user services. We don't use check=True to avoid exception on non-zero exit.
+            # systemctl is-active returns non-zero if not active, which is fine.
+            result = subprocess.run(
+                ['systemctl', '--user', 'is-active', svc],
+                capture_output=True, text=True, timeout=5
+            )
+            status = result.stdout.strip()
+            # If stdout is empty, it might be an error or unknown service
+            final_status = status if status else "unknown"
+            status_map[svc] = final_status
+            current_app.logger.info(f"Service {svc} status: {final_status}")
+        except subprocess.TimeoutExpired:
+            status_map[svc] = "timeout"
+            current_app.logger.error(f"Service {svc} timed out checking status")
+        except Exception as e:
+            status_map[svc] = f"error"
+            current_app.logger.error(f"Service {svc} check failed: {e}")
+    
+    return status_map
+
 
 @bp.route('/')
 def index():
@@ -102,6 +158,7 @@ def index():
         error_message = f"Error parsing YAML file at {config_path}: {e}"
 
     db_info = get_db_info()
+    service_status = get_services_status()
 
     # Generate list of endpoints
     endpoints = []
@@ -152,7 +209,8 @@ def index():
         sources=sources,
         db_info=db_info,
         error_message=error_message,
-        endpoints=endpoints
+        endpoints=endpoints,
+        service_status=service_status
     )
 
 @bp.route('/sources', methods=['POST'])

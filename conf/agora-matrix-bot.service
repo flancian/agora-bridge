@@ -18,7 +18,7 @@ WorkingDirectory=%h/agora-bridge/bots/matrix
 # This might need a specific run script if one doesn't exist.
 ExecStart=/usr/bin/maubot -c config.yaml
 Restart=always
-RestartSec=10
+RestartSec=60
 
 [Install]
 WantedBy=default.target

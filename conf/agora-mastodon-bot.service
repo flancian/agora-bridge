@@ -16,7 +16,7 @@ Description=Agora Mastodon Bot
 WorkingDirectory=%h/agora-bridge
 ExecStart=%h/agora-bridge/run-mastodon-bot-prod.sh
 Restart=always
-RestartSec=10
+RestartSec=60
 
 [Install]
 WantedBy=default.target

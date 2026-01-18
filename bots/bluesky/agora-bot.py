@@ -60,10 +60,35 @@ class AgoraBot(object):
             L.error(e)
 
         self.client = Client(base_url='https://bsky.social')
-        self.client.login(self.config['user'], self.config['password'])
+        self.session_file = 'bsky_session.txt'
+        self.login()
 
         self.me = self.client.resolve_handle(self.config['user'])
         self.last_reply_time = 0
+
+    def login(self):
+        # Try to load existing session
+        if os.path.exists(self.session_file):
+            try:
+                with open(self.session_file, 'r') as f:
+                    session_string = f.read().strip()
+                self.client.login(reuse_session_string=session_string)
+                L.info("Successfully resumed Bluesky session.")
+                return
+            except Exception as e:
+                L.warning(f"Could not resume Bluesky session: {e}. Logging in with password...")
+
+        # Fallback to password login
+        try:
+            self.client.login(self.config['user'], self.config['password'])
+            # Save session for next time
+            session_string = self.client.export_session_string()
+            with open(self.session_file, 'w') as f:
+                f.write(session_string)
+            L.info("Logged in to Bluesky with password and saved session.")
+        except Exception as e:
+            L.error(f"Failed to log in to Bluesky: {e}")
+            raise e
 
     def build_reply(self, entities):
         # always at-mention at least the original author.
@@ -299,16 +324,29 @@ def main():
     # How much to sleep between runs, in seconds (this may go away once we're using a subscription model?).
     sleep = 60
 
-    bot = AgoraBot()
+    try:
+        bot = AgoraBot()
+    except Exception as e:
+        L.error(f"Failed to initialize bot: {e}")
+        return
 
     while True:
-        bot.follow_followers()
-        bot.catch_up()
+        try:
+            L.info("Starting new iteration...")
+            bot.follow_followers()
+            bot.catch_up()
+        except Exception as e:
+            L.error(f"Error during bot iteration: {e}")
+            # If it's a session error, we might want to force a re-login
+            if "session" in str(e).lower() or "auth" in str(e).lower():
+                L.info("Attempting to re-login due to suspected session error...")
+                try:
+                    bot.login()
+                except Exception as login_error:
+                    L.error(f"Re-login failed: {login_error}")
 
         L.info(f'-> Sleeping for {sleep} seconds...')
         time.sleep(sleep)
-
-    # Much more goes here I guess :)
 
 if __name__ == "__main__":
     main()

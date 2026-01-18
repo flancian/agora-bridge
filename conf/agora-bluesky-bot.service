@@ -16,7 +16,7 @@ Description=Agora Bluesky Bot
 WorkingDirectory=%h/agora-bridge
 ExecStart=%h/agora-bridge/run-bluesky-bot-prod.sh
 Restart=always
-RestartSec=10
+RestartSec=60
 
 [Install]
 WantedBy=default.target

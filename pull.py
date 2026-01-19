@@ -111,12 +111,18 @@ def git_clone(tracker, target, url, path):
 
     L.info(f"Running git clone {url} to path {path}")
 
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+
     try:
-        output = subprocess.run(['timeout', TIMEOUT, 'git', 'clone', url, path], capture_output=True)
+        output = subprocess.run(['timeout', TIMEOUT, 'git', 'clone', url, path], capture_output=True, env=env)
         if output.returncode == 0:
             tracker.update(target, url=url, success=True)
+        elif output.returncode == 124:
+            tracker.update(target, url=url, success=False, error="Timeout cloning repository")
+            L.error(f'Timeout while cloning {url}')
         else:
-            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else f"Unknown error (code {output.returncode})"
             tracker.update(target, url=url, success=False, error=error_msg)
             L.error(f'Error while cloning {url}: {error_msg}')
     except Exception as e:
@@ -125,43 +131,61 @@ def git_clone(tracker, target, url, path):
 
 def git_reset(path):
     L.info(f'Trying to git reset --hard')
-    subprocess.run(['timeout', TIMEOUT, 'git', 'fetch', 'origin'])
-    # Get default branch
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    
     try:
-        res = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True)
+        subprocess.run(['timeout', TIMEOUT, 'git', 'fetch', 'origin'], env=env, check=True, capture_output=True)
+        # Get default branch
+        res = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True, env=env)
         branch = res.stdout.strip().decode("utf-8") if res.stdout else "main"
-        output = subprocess.run(['timeout', TIMEOUT, 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True)
+        output = subprocess.run(['timeout', TIMEOUT, 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True, env=env)
         L.info(f'output: {output.stdout}')
-        if output.stderr:
+        if output.returncode != 0:
             L.error(output.stderr)
+            return False, output.stderr.decode('utf-8', errors='replace')
+        return True, None
+    except subprocess.CalledProcessError as e:
+        L.error(f"Fetch failed: {e}")
+        return False, f"Fetch failed: {e}"
     except Exception as e:
         L.error(f"Reset failed: {e}")
+        return False, str(e)
 
 
 def git_pull(tracker, target, url, path):
 
     if not os.path.exists(path):
         L.warning(f"{path} doesn't exist, couldn't pull to it.")
-        return 42
+        tracker.update(target, url=url, success=False, error=f"Path {path} does not exist (clone failed?)")
+        return
 
     try:
         os.chdir(path)
     except FileNotFoundError:
         L.error(f"Couldn't pull in {path} due to the directory being missing, clone must be run first")
+        tracker.update(target, url=url, success=False, error=f"Path {path} missing during pull")
         return
 
     if args.reset_only:
-        git_reset(path)
+        success, error = git_reset(path)
+        tracker.update(target, url=url, success=success, error=error)
         return
 
     L.info(f"Running git pull in path {path}")
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+
     try:
-        output = subprocess.run(['timeout', TIMEOUT, 'git', 'pull'], capture_output=True)
+        output = subprocess.run(['timeout', TIMEOUT, 'git', 'pull'], capture_output=True, env=env)
         if output.returncode == 0:
             tracker.update(target, url=url, success=True)
             L.info(output.stdout.decode('utf-8', errors='replace'))
+        elif output.returncode == 124:
+            tracker.update(target, url=url, success=False, error="Timeout pulling repository")
+            L.error(f'{path}: Timeout while pulling')
         else:
-            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else f"Unknown error (code {output.returncode})"
             tracker.update(target, url=url, success=False, error=error_msg)
             L.error(f'{path}: {error_msg}')
             if args.reset:
@@ -186,7 +210,6 @@ def worker(db_path):
     tracker = StatusTracker(db_path)
     while True:
         try:
-            L.debug("Queue size: {}".format(Q.qsize()))
             task = Q.get(block=True, timeout=60)
             # task is (func, *args)
             func = task[0]

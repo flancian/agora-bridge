@@ -74,6 +74,27 @@ def get_db_info():
         db_info['error'] = f"Database error: {e}"
         return db_info
 
+def get_bridge_status():
+    """Gets garden sync status from bridge.db."""
+    db_path = os.path.expanduser('~/agora/bridge.db')
+    if not os.path.exists(db_path):
+        return {}
+
+    status_map = {}
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM garden_status")
+        rows = cursor.fetchall()
+        for row in rows:
+            status_map[row['target']] = dict(row)
+        conn.close()
+    except sqlite3.Error as e:
+        current_app.logger.error(f"Bridge DB error: {e}")
+    
+    return status_map
+
 def get_services_status():
     """Checks the status of Agora-related systemd services."""
     # Try to find the conf directory relative to this file
@@ -159,6 +180,13 @@ def index():
 
     db_info = get_db_info()
     service_status = get_services_status()
+    bridge_status = get_bridge_status()
+
+    # Enrich sources with bridge status
+    for source in sources:
+        target = source.get('target')
+        if target in bridge_status:
+            source['bridge_status'] = bridge_status[target]
 
     # Generate list of endpoints
     endpoints = []

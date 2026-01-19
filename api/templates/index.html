@@ -58,7 +58,8 @@
                         <th>URL</th>
                         <th>Target</th>
                         <th>Format</th>
-                        <th>Last Updated</th>
+                        <th>Last Updated (Disk)</th>
+                        <th>Bridge Health</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -69,6 +70,22 @@
                         <td>{{ source.target }}</td>
                         <td>{{ source.format }}</td>
                         <td>{{ source.last_updated }}</td>
+                        <td>
+                            {% if source.bridge_status %}
+                                <span style="font-weight: bold; color: {% if source.bridge_status.status == 'OK' %}green{% else %}red{% endif %};">
+                                    {{ source.bridge_status.status }}
+                                </span>
+                                <br/>
+                                <small>
+                                    Attempt: {{ source.bridge_status.last_attempt }}
+                                    {% if source.bridge_status.last_error %}
+                                        <br/><span style="color: red;">Error: {{ source.bridge_status.last_error }}</span>
+                                    {% endif %}
+                                </small>
+                            {% else %}
+                                <span style="color: gray;">Unknown</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

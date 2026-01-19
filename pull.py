@@ -197,7 +197,17 @@ def git_reset(path):
 def git_pull(tracker, target, url, path):
 
     if not os.path.exists(path):
-        L.warning(f"{path} doesn't exist, couldn't pull to it.")
+        L.warning(f"{path} doesn't exist, checking if clone error already recorded.")
+        # Check if we already have an error (e.g. from git_clone)
+        with sqlite3.connect(tracker.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT status, last_error FROM garden_status WHERE target=?", (target,))
+            row = cursor.fetchone()
+            if row and row['status'] == 'ERROR' and row['last_error']:
+                L.info(f"Preserving existing error for {target}: {row['last_error']}")
+                return
+
         tracker.update(target, url=url, success=False, error=f"Path {path} does not exist (clone failed?)")
         return
 

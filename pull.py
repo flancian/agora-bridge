@@ -123,31 +123,72 @@ def git_clone(tracker, target, url, path):
             L.error(f'Timeout while cloning {url}')
         else:
             error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else f"Unknown error (code {output.returncode})"
+            if "not found" in error_msg.lower():
+                error_msg = "Repository not found (404)"
+            elif "authentication failed" in error_msg.lower():
+                error_msg = "Authentication failed (Private repo?)"
+            
             tracker.update(target, url=url, success=False, error=error_msg)
             L.error(f'Error while cloning {url}: {error_msg}')
     except Exception as e:
         tracker.update(target, url=url, success=False, error=str(e))
         L.error(f'Exception while cloning {url}: {e}')
 
+def clear_stale_lock(path):
+    lock_file = os.path.join(path, '.git', 'index.lock')
+    if os.path.exists(lock_file):
+        try:
+            mtime = os.path.getmtime(lock_file)
+            age = time.time() - mtime
+            if age > 300: # 5 minutes
+                L.warning(f"Removing stale lock file at {lock_file} (age: {age:.0f}s)")
+                os.remove(lock_file)
+                return True
+        except Exception as e:
+            L.error(f"Failed to check/remove lock file {lock_file}: {e}")
+    return False
+
 def git_reset(path):
     L.info(f'Trying to git reset --hard')
+    clear_stale_lock(path)
     env = os.environ.copy()
     env['GIT_TERMINAL_PROMPT'] = '0'
     
     try:
+        # 1. Fetch
         subprocess.run(['timeout', TIMEOUT, 'git', 'fetch', 'origin'], env=env, check=True, capture_output=True)
-        # Get default branch
-        res = subprocess.run(['git', 'symbolic-ref', '--short', 'HEAD'], capture_output=True, env=env)
-        branch = res.stdout.strip().decode("utf-8") if res.stdout else "main"
+        
+        # 2. Determine default branch dynamically
+        # Try to get it from the remote symref
+        res = subprocess.run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], capture_output=True, env=env)
+        if res.returncode == 0:
+            branch = res.stdout.strip().decode("utf-8").replace('origin/', '')
+        else:
+            # Fallback: Ask remote for the HEAD symref
+            res = subprocess.run(['git', 'remote', 'set-head', 'origin', '-a'], capture_output=True, env=env)
+            res = subprocess.run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], capture_output=True, env=env)
+            if res.returncode == 0:
+                branch = res.stdout.strip().decode("utf-8").replace('origin/', '')
+            else:
+                # Last resort: common names
+                branch = "main"
+
+        L.info(f"Resetting to origin/{branch}")
         output = subprocess.run(['timeout', TIMEOUT, 'git', 'reset', '--hard', f'origin/{branch}'], capture_output=True, env=env)
         L.info(f'output: {output.stdout}')
         if output.returncode != 0:
-            L.error(output.stderr)
-            return False, output.stderr.decode('utf-8', errors='replace')
+            error_msg = output.stderr.decode('utf-8', errors='replace')
+            L.error(error_msg)
+            return False, error_msg
         return True, None
     except subprocess.CalledProcessError as e:
-        L.error(f"Fetch failed: {e}")
-        return False, f"Fetch failed: {e}"
+        error_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else str(e)
+        if "not found" in error_msg.lower():
+            error_msg = "Repository not found (404)"
+        elif "authentication failed" in error_msg.lower():
+            error_msg = "Authentication failed"
+        L.error(f"Fetch failed: {error_msg}")
+        return False, f"Fetch failed: {error_msg}"
     except Exception as e:
         L.error(f"Reset failed: {e}")
         return False, str(e)
@@ -173,6 +214,7 @@ def git_pull(tracker, target, url, path):
         return
 
     L.info(f"Running git pull in path {path}")
+    clear_stale_lock(path)
     env = os.environ.copy()
     env['GIT_TERMINAL_PROMPT'] = '0'
 

@@ -314,12 +314,65 @@ class AgoraBot(object):
                 else:
                     L.info(f"[Dry Run] Would unfollow {follow.handle}")
 
+    def has_opted_in(self, did):
+        # Check if the user has opted in to advanced features (like hashtags) via their bio.
+        try:
+            profile = self.client.get_profile(did)
+            if profile.description and ('#agora' in profile.description.lower() or '[[agora]]' in profile.description.lower()):
+                return True
+        except Exception as e:
+            L.warning(f"Could not fetch profile for {did}: {e}")
+        return False
+
+    def check_notifications(self):
+        L.info("Checking notifications...")
+        try:
+            # Fetch unread notifications
+            response = self.client.list_notifications(limit=20)
+            for notif in response.notifications:
+                if not notif.is_read:
+                    # Mark as read immediately to avoid processing loops
+                    self.client.update_seen_notifications(seen_at=datetime.now(timezone.utc).isoformat())
+                    
+                    if notif.reason == 'mention':
+                        post = notif.record
+                        author = notif.author
+                        L.info(f"Mentioned by {author.handle}: {post.text}")
+                        
+                        if 'help' in post.text.lower():
+                            help_msg = (
+                                "I am an Agora Bot. I bridge your knowledge to the Agora.\n"
+                                "- I reply to [[wikilinks]] if you follow me.\n"
+                                "- I reply to #hashtags if you verify by adding #agora to your bio."
+                            )
+                            # Reply to the mention
+                            try:
+                                root = models.create_strong_ref(notif) # actually need post view?
+                                # notif.record is the record, not the view.
+                                # construct reply ref manually?
+                                # easier: fetch the post view.
+                                # But we have the URI and CID in notif.
+                                parent = models.ComAtprotoRepoStrongRef.Main(cid=notif.cid, uri=notif.uri)
+                                root = parent # Simplification for single-level reply
+                                
+                                # Send reply
+                                self.client.send_post(text=help_msg, reply_to=models.AppBskyFeedPost.ReplyRef(parent=parent, root=root))
+                                L.info(f"Sent help message to {author.handle}")
+                            except Exception as e:
+                                L.error(f"Failed to reply to help mention: {e}")
+
+        except Exception as e:
+            L.error(f"Error checking notifications: {e}")
+
     def catch_up(self):
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
 
         # Iterate over items (did, handle)
         for mutual_did, handle in self.get_mutuals().items():
             L.info(f'-> Processing posts by {handle} ({mutual_did})...')
+            
+            opted_in = self.has_opted_in(mutual_did)
+            
             try:
                 # Use get_author_feed (AppView) instead of listRecords (PDS) for better federation support
                 feed_response = self.client.get_author_feed(actor=mutual_did, limit=100)
@@ -358,8 +411,11 @@ class AgoraBot(object):
                     continue
 
                 wikilinks = WIKILINK_RE.findall(record.text)
-                hashtags = HASHTAG_RE.findall(record.text)
-                all_entities = wikilinks + hashtags
+                all_entities = wikilinks
+                
+                if opted_in:
+                    hashtags = HASHTAG_RE.findall(record.text)
+                    all_entities += hashtags
                 
                 if all_entities:
                     entities = uniq(all_entities)
@@ -391,6 +447,7 @@ def main():
     while True:
         try:
             L.info("Starting new iteration...")
+            bot.check_notifications()
             bot.follow_followers()
             bot.prune_follows()
             bot.catch_up()

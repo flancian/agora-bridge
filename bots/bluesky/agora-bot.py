@@ -259,6 +259,55 @@ class AgoraBot(object):
                 except Exception as e:
                     L.error(f"Error following {follower.handle}: {e}")
 
+    def prune_follows(self):
+        followers = self.get_followers()
+        follows = self.get_follows()
+        
+        # Safety check: if we somehow got 0 followers but have many follows, abort to prevent mass unfollow.
+        # Assuming we should have at least 1 follower if we have > 10 follows.
+        if len(followers) == 0 and len(follows) > 10:
+            L.warning("Safety stop: Get 0 followers but have > 10 follows. Skipping prune to prevent accidents.")
+            return
+
+        # Map DID -> Handle for followers
+        follower_dids = {f.did for f in followers}
+        
+        L.info(f"Checking {len(follows)} follows for prune candidates (people who don't follow us back)...")
+        
+        unfollowed_count = 0
+        MAX_UNFOLLOWS = 10
+
+        for follow in follows:
+            if unfollowed_count >= MAX_UNFOLLOWS:
+                L.info(f"Reached max unfollows per iteration ({MAX_UNFOLLOWS}). Stopping prune.")
+                break
+
+            if follow.did not in follower_dids:
+                L.info(f'-> Pruning {follow.handle} (does not follow us)')
+                if args.write:
+                    try:
+                        # For unfollowing, we need the URI of the 'follow' record.
+                        # The 'follow' object in the list usually contains the URI of the follow record (follow.uri).
+                        # Let's check the atproto documentation or inspection.
+                        # Client.unfollow needs the URI of the follow record.
+                        # The 'follows' list items are typically ProfileView (or similar), checking if they have the 'viewer' state.
+                        # Actually, get_follows returns 'ProfileView', which has 'viewer' (ViewerState).
+                        # 'viewer.following' is the URI of the follow record!
+                        
+                        if follow.viewer and follow.viewer.following:
+                            self.client.delete_follow(follow.viewer.following)
+                            L.info(f"Successfully unfollowed {follow.handle}")
+                            unfollowed_count += 1
+                            # Sleep a bit to be nice to the API
+                            time.sleep(1.0)
+                        else:
+                            L.warning(f"Could not find follow record URI for {follow.handle}, skipping.")
+
+                    except Exception as e:
+                        L.error(f"Error unfollowing {follow.handle}: {e}")
+                else:
+                    L.info(f"[Dry Run] Would unfollow {follow.handle}")
+
     def catch_up(self):
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
 
@@ -334,6 +383,7 @@ def main():
         try:
             L.info("Starting new iteration...")
             bot.follow_followers()
+            bot.prune_follows()
             bot.catch_up()
         except Exception as e:
             L.error(f"Error during bot iteration: {e}")

@@ -23,8 +23,8 @@ parser.add_argument('--reply-interval', dest='reply_interval', type=float, defau
 args = parser.parse_args()
 
 WIKILINK_RE = re.compile(r'\[\[(.*?)\]\]', re.IGNORECASE)
-# thou shall not use regexes to parse html, except when yolo
-HASHTAG_RE = re.compile(r'#<span>(\w+)</span>', re.IGNORECASE)
+# match hashtags at start of line or preceded by whitespace
+HASHTAG_RE = re.compile(r'(?:^|\s)#(\w+)', re.IGNORECASE)
 # https://github.com/bluesky-social/atproto/discussions/2523
 URI_RE = re.compile(r'at://(.*?)/app.bsky.feed.post/(.*)', re.IGNORECASE)
 
@@ -72,7 +72,13 @@ class AgoraBot(object):
             try:
                 with open(self.session_file, 'r') as f:
                     session_string = f.read().strip()
-                self.client.login(reuse_session_string=session_string)
+                
+                # Try newer API first, then fallback
+                try:
+                    self.client.login(reuse_session_string=session_string)
+                except TypeError:
+                    self.client.login(session_string=session_string)
+                    
                 L.info("Successfully resumed Bluesky session.")
                 return
             except Exception as e:
@@ -352,9 +358,12 @@ class AgoraBot(object):
                     continue
 
                 wikilinks = WIKILINK_RE.findall(record.text)
-                if wikilinks:
-                    entities = uniq(wikilinks)
-                    L.info(f'\nSaw wikilinks at {uri} ({timestamp_str}):\n{record.text}\n')
+                hashtags = HASHTAG_RE.findall(record.text)
+                all_entities = wikilinks + hashtags
+                
+                if all_entities:
+                    entities = uniq(all_entities)
+                    L.info(f'\nSaw entities at {uri} ({timestamp_str}):\n{record.text}\n')
                     msg = self.build_reply(entities)
                     L.info(f'\nWould respond with:\n{msg.build_text()}\n--\n')
                     

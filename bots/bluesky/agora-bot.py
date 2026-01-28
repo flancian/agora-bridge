@@ -280,30 +280,15 @@ class AgoraBot(object):
         
         L.info(f"Checking {len(follows)} follows for prune candidates (people who don't follow us back)...")
         
-        unfollowed_count = 0
-        MAX_UNFOLLOWS = 10
-
         for follow in follows:
-            if unfollowed_count >= MAX_UNFOLLOWS:
-                L.info(f"Reached max unfollows per iteration ({MAX_UNFOLLOWS}). Stopping prune.")
-                break
-
             if follow.did not in follower_dids:
                 L.info(f'-> Pruning {follow.handle} (does not follow us)')
                 if args.write:
                     try:
                         # For unfollowing, we need the URI of the 'follow' record.
-                        # The 'follow' object in the list usually contains the URI of the follow record (follow.uri).
-                        # Let's check the atproto documentation or inspection.
-                        # Client.unfollow needs the URI of the follow record.
-                        # The 'follows' list items are typically ProfileView (or similar), checking if they have the 'viewer' state.
-                        # Actually, get_follows returns 'ProfileView', which has 'viewer' (ViewerState).
-                        # 'viewer.following' is the URI of the follow record!
-                        
                         if follow.viewer and follow.viewer.following:
                             self.client.delete_follow(follow.viewer.following)
                             L.info(f"Successfully unfollowed {follow.handle}")
-                            unfollowed_count += 1
                             # Sleep a bit to be nice to the API
                             time.sleep(1.0)
                         else:
@@ -328,11 +313,12 @@ class AgoraBot(object):
         L.info("Checking notifications...")
         try:
             # Fetch unread notifications
-            response = self.client.list_notifications(limit=20)
+            # Use lower level API if list_notifications is missing from Client
+            response = self.client.app.bsky.notification.list_notifications(params={'limit': 20})
             for notif in response.notifications:
                 if not notif.is_read:
                     # Mark as read immediately to avoid processing loops
-                    self.client.update_seen_notifications(seen_at=datetime.now(timezone.utc).isoformat())
+                    self.client.app.bsky.notification.update_seen({'seen_at': datetime.now(timezone.utc).isoformat()})
                     
                     if notif.reason == 'mention':
                         post = notif.record

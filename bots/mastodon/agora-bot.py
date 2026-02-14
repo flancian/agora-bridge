@@ -43,6 +43,9 @@ PUSH_RE = re.compile(r'\[\[push\]\]', re.IGNORECASE)
 # Buggy, do not enable without revamping build_reply()
 P_HELP = 0.0
 
+# Constants for follow/unfollow safety checks
+MIN_FOLLOWS_FOR_SAFETY_CHECK = 10
+
 parser = argparse.ArgumentParser(description='Agora Bot for Mastodon (ActivityPub).')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
 parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
@@ -507,14 +510,19 @@ def main():
 
         # Cleanup: Unfollow users who have unfollowed us.
         following = bot.get_following()
-        follower_ids = {u.id for u in followers}
-        for user in following:
-             if user.id not in follower_ids:
-                 L.info(f"User {user.acct} no longer follows us. Unfollowing.")
-                 try:
-                     mastodon.account_unfollow(user.id)
-                 except MastodonAPIError as e:
-                     L.warning(f"Error unfollowing {user.acct}: {e}")
+        
+        # Safety check: if we somehow got 0 followers but have many follows, abort to prevent mass unfollow.
+        if len(followers) == 0 and len(following) > MIN_FOLLOWS_FOR_SAFETY_CHECK:
+            L.warning(f"Safety stop: Get 0 followers but have > {MIN_FOLLOWS_FOR_SAFETY_CHECK} follows. Skipping unfollow cleanup to prevent accidents.")
+        else:
+            follower_ids = {u.id for u in followers}
+            for user in following:
+                 if user.id not in follower_ids:
+                     L.info(f"User {user.acct} no longer follows us. Unfollowing.")
+                     try:
+                         mastodon.account_unfollow(user.id)
+                     except MastodonAPIError as e:
+                         L.warning(f"Error unfollowing {user.acct}: {e}")
 
         L.info('Sleeping...')
         time.sleep(30)

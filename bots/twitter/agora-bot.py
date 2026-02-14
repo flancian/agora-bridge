@@ -59,6 +59,9 @@ P_HELP = 0.1
 BACKOFF = 15
 BACKOFF_MAX = 600
 
+# Constants for follow/unfollow safety checks
+MIN_FOLLOWS_FOR_SAFETY_CHECK = 10
+
 # argparse
 parser = argparse.ArgumentParser(description='Agora Bot for Twitter.')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to agora-bot.yaml, see agora-bot.yaml.example.')
@@ -690,8 +693,11 @@ class AgoraBot():
         except tweepy.errors.TooManyRequests:
             # This gets throttled a lot -- worth it not to go too hard here as it'll prevent the rest of the bot from running.
             pass
+        except Exception as e:
+            L.error(f"Error fetching friends: {e}")
+            pass
         L.debug(f'*** friends: {friends}')
-        return friends
+        return None
 
     @cachetools.func.ttl_cache(ttl=600)
     def get_followers(self):
@@ -704,8 +710,11 @@ class AgoraBot():
             # This gets throttled a lot -- worth it not to hard here as it'll prevent the rest of the bot from running.
             # TODO: read from friends.yaml!
             pass
+        except Exception as e:
+            L.error(f"Error fetching followers: {e}")
+            pass
         L.debug(f'*** followers: {followers}')
-        return followers
+        return None
 
     def unfollow(self, user):
         # uri = f'https://api.twitter.com/2/users/{self.bot_user_id}/following/{user_id}'
@@ -739,12 +748,24 @@ class AgoraBot():
 
     def follow_followers(self):
         L.info("# Trying to follow back only followers.")
-        friends = {friend for friend in self.get_friends()}
+        friends_list = self.get_friends()
+        followers_list = self.get_followers()
+        
+        if friends_list is None or followers_list is None:
+             L.warning("Could not fetch friends or followers (likely throttled). Skipping follow/unfollow logic.")
+             return
+
+        friends = {friend for friend in friends_list}
         # write list here?
-        followers = {follower for follower in self.get_followers()}
+        followers = {follower for follower in followers_list}
         # write list here?
         L.debug(f"# friends: {friends}")
         L.debug(f"# followers: {followers}")
+
+        # Safety check
+        if not followers and len(friends) > MIN_FOLLOWS_FOR_SAFETY_CHECK:
+             L.warning(f"Safety stop: 0 followers but > {MIN_FOLLOWS_FOR_SAFETY_CHECK} friends. Skipping unfollow.")
+             return
 
         for friend in friends - followers:
             L.debug(f"# Trying to unfollow {friend} as they don't follow us.")

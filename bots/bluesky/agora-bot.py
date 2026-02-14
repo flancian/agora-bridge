@@ -28,6 +28,11 @@ HASHTAG_RE = re.compile(r'(?:^|\s)#(\w+)', re.IGNORECASE)
 # https://github.com/bluesky-social/atproto/discussions/2523
 URI_RE = re.compile(r'at://(.*?)/app.bsky.feed.post/(.*)', re.IGNORECASE)
 
+# Constants for follow/unfollow safety checks
+FOLLOW_SAFETY_RATIO = 0.9
+FOLLOW_SAFETY_MARGIN = 5
+MIN_FOLLOWS_FOR_SAFETY_CHECK = 10
+
 logging.basicConfig()
 L = logging.getLogger('agora-bot')
 if args.verbose:
@@ -205,7 +210,7 @@ class AgoraBot(object):
                 time.sleep(0.1)
             except Exception as e:
                 L.error(f"Error fetching followers page: {e}")
-                break
+                return None
         L.info(f"Finished fetching {len(followers)} followers.")
         return followers
 
@@ -227,7 +232,7 @@ class AgoraBot(object):
                 time.sleep(0.1)
             except Exception as e:
                 L.error(f"Error fetching follows page: {e}")
-                break
+                return None
         L.info(f"Finished fetching {len(follows)} follows.")
         return follows
 
@@ -237,6 +242,10 @@ class AgoraBot(object):
         follows = self.get_follows()
         followers = self.get_followers()
         
+        if follows is None or followers is None:
+            L.warning("Could not fetch full lists for mutuals.")
+            return None
+
         # Optimization: Map DID -> Handle for people we follow
         following_map = {f.did: f.handle for f in follows}
         
@@ -251,6 +260,10 @@ class AgoraBot(object):
         followers = self.get_followers()
         mutuals = self.get_mutuals()
         
+        if followers is None or mutuals is None:
+            L.warning("Skipping follow_followers due to incomplete lists.")
+            return
+
         L.info(f"Checking {len(followers)} followers for follow-back candidates...")
         
         for follower in followers:
@@ -269,10 +282,34 @@ class AgoraBot(object):
         followers = self.get_followers()
         follows = self.get_follows()
         
+        if followers is None or follows is None:
+            L.warning("Could not fetch full lists (followers or follows). Skipping prune.")
+            return
+
         # Safety check: if we somehow got 0 followers but have many follows, abort to prevent mass unfollow.
-        # Assuming we should have at least 1 follower if we have > 10 follows.
-        if len(followers) == 0 and len(follows) > 10:
-            L.warning("Safety stop: Get 0 followers but have > 10 follows. Skipping prune to prevent accidents.")
+        # Assuming we should have at least 1 follower if we have > MIN_FOLLOWS_FOR_SAFETY_CHECK follows.
+        if len(followers) == 0 and len(follows) > MIN_FOLLOWS_FOR_SAFETY_CHECK:
+            L.warning(f"Safety stop: Get 0 followers but have > {MIN_FOLLOWS_FOR_SAFETY_CHECK} follows. Skipping prune to prevent accidents.")
+            return
+
+        # Additional safety check using profile count
+        try:
+            profile = self.client.get_profile(self.config['user'])
+            # Check for followers_count (snake_case) or followersCount (camelCase) just in case
+            reported_count = getattr(profile, 'followers_count', getattr(profile, 'followersCount', None))
+            
+            if reported_count is not None:
+                # If we have significantly fewer followers than reported (allowing for 10% discrepancy + some constant)
+                # e.g. if reported is 100, we expect at least 90.
+                if len(followers) < (reported_count * FOLLOW_SAFETY_RATIO) - FOLLOW_SAFETY_MARGIN:
+                     L.warning(f"Safety stop: Fetched {len(followers)} followers, but profile reports {reported_count}. Skipping prune.")
+                     return
+            else:
+                L.warning("Could not determine reported follower count from profile. Skipping prune to be safe.")
+                return
+        except Exception as e:
+            L.warning(f"Could not verify follower count against profile: {e}")
+            L.warning("Skipping prune due to profile fetch failure.")
             return
 
         # Map DID -> Handle for followers
@@ -353,8 +390,13 @@ class AgoraBot(object):
     def catch_up(self):
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
 
+        mutuals = self.get_mutuals()
+        if mutuals is None:
+            L.warning("Skipping catch_up due to incomplete mutuals list.")
+            return
+
         # Iterate over items (did, handle)
-        for mutual_did, handle in self.get_mutuals().items():
+        for mutual_did, handle in mutuals.items():
             L.info(f'-> Processing posts by {handle} ({mutual_did})...')
             
             opted_in = self.has_opted_in(mutual_did)

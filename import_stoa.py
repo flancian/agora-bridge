@@ -77,7 +77,7 @@ def is_spam(alias: str, content: str) -> Tuple[bool, str]:
     
     return False, "safe"
 
-def export_note(alias: str):
+def import_note(alias: str):
     """Downloads the note content and saves it if it's not spam."""
     # Ensure export dir exists
     os.makedirs(EXPORT_DIR, exist_ok=True)
@@ -144,7 +144,7 @@ def main():
     for i, alias in enumerate(aliases):
         if i % 50 == 0:
             logger.info(f"Progress: {i}/{len(aliases)}")
-        export_note(alias)
+        import_note(alias)
     
     update_last_sync()
     git_sync()

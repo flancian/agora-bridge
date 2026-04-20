@@ -250,7 +250,7 @@ def stoa_import(tracker, target, url, path):
     os.chdir(this_path)
     try:
         # Run the import_stoa.py script
-        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_stoa.py"], capture_output=True)
+        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_stoa.py", f"--output-dir={path}"], capture_output=True)
         if output.returncode == 0:
             tracker.update(target, url=url, success=True)
         else:

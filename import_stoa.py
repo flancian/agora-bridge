@@ -8,11 +8,19 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Tuple
 
+import argparse
+
 # Configuration
 HEDGEDOC_URL = "https://doc.anagora.org"
 SSH_TARGET = "hedgedoc@patera"
-EXPORT_DIR = os.path.expanduser("~/agora/stoa/doc.anagora.org")
 GIT_REPO_URL = "https://github.com/flancia-coop/doc.anagora.org"
+
+# Parse arguments
+parser = argparse.ArgumentParser(description='Import Stoa nodes from HedgeDoc')
+parser.add_argument('--output-dir', dest='output_dir', type=str, default=os.path.expanduser("~/agora/stoa/doc.anagora.org"), help='The path to the output directory')
+args = parser.parse_args()
+
+EXPORT_DIR = os.path.abspath(args.output_dir)
 LAST_SYNC_FILE = os.path.join(EXPORT_DIR, ".last_sync")
 
 # Spam Filter Constants

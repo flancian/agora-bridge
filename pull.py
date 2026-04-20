@@ -246,6 +246,21 @@ def git_pull(tracker, target, url, path):
         tracker.update(target, url=url, success=False, error=str(e))
         L.error(f"Pull exception: {e}")
 
+def stoa_export(tracker, target, url, path):
+    os.chdir(this_path)
+    try:
+        # Run the export_stoa.py script
+        output = subprocess.run(["uv", "run", "python3", f"{this_path}/export_stoa.py"], capture_output=True)
+        if output.returncode == 0:
+            tracker.update(target, url=url, success=True)
+        else:
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            L.error(f"Error in stoa_export: {error_msg}")
+            tracker.update(target, url=url, success=False, error=error_msg)
+    except Exception as e:
+        L.error(f"Exception in stoa_export: {e}")
+        tracker.update(target, url=url, success=False, error=str(e))
+
 def fedwiki_import(tracker, target, url, path):
     os.chdir(this_path)
     try:
@@ -269,7 +284,7 @@ def worker(db_path):
             func(tracker, *args_for_func)
             Q.task_done()
             # if this is a pull, schedule the same task for another run later.
-            if func == git_pull or func == fedwiki_import:
+            if func in (git_pull, fedwiki_import, stoa_export):
                 Q.put(task)
             time.sleep(args.delay)
         except Exception as e:
@@ -294,6 +309,10 @@ def main():
         path = os.path.join(args.output_dir, target)
         if item.get('format') == "fedwiki":
             Q.put((fedwiki_import, target, url, path))
+            continue
+
+        if item.get('format') == "stoa-export":
+            Q.put((stoa_export, target, url, path))
             continue
         
         # Default to git for all other formats (markdown, obsidian, foam, etc.)

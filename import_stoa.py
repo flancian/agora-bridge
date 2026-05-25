@@ -132,6 +132,7 @@ def git_sync():
         # Check if it's a git repo
         if not os.path.exists(".git"):
             subprocess.run(["git", "init"], check=True)
+            subprocess.run(["git", "branch", "-M", "main"], check=True)
             subprocess.run(["git", "remote", "add", "origin", GIT_REPO_URL], check=True)
 
         subprocess.run(["git", "add", "."], check=True)
@@ -139,7 +140,10 @@ def git_sync():
         status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
         if status.stdout:
             subprocess.run(["git", "commit", "-m", "stoa update (automated)"], check=True)
-            subprocess.run(["git", "push", "origin", "main"], check=True)
+            # Push the current branch instead of hardcoding 'main'
+            branch_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True)
+            branch = branch_res.stdout.strip()
+            subprocess.run(["git", "push", "origin", branch], check=True)
             logger.info("Git sync complete.")
         else:
             logger.info("No changes to sync.")

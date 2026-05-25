@@ -70,18 +70,27 @@ def is_spam(alias: str, content: str) -> Tuple[bool, str]:
     if re.search(r'(casino|bet|club|88).*\.(com|vip|io|org|net|ink)', alias, re.I):
         return True, "alias_pattern"
     
-    # Check content
-    links = re.findall(r'https?://', content)
+    # Calculate link density
+    # Roughly estimate text length of all links
+    link_matches = re.finditer(r'https?://[^\s]+', content)
+    links_length = sum(len(match.group(0)) for match in link_matches)
+    content_length = len(content)
+    
+    link_density = 0
+    if content_length > 0:
+        link_density = links_length / content_length
+        
     has_vn = VN_CHARS.search(content) is not None
     
     score = 0
-    if len(links) > 50: score += 2
-    if len(links) > 200: score += 3
+    # Link density over 25% is highly suspicious for a normal markdown doc
+    if link_density > 0.25: score += 2
+    if link_density > 0.50: score += 4
     if has_vn: score += 2
     if any(k in content.lower() for k in SPAM_KEYWORDS): score += 3
 
     if score >= 4:
-        return True, f"content_score:{score}"
+        return True, f"content_score:{score}_density:{link_density:.2f}"
     
     return False, "safe"
 

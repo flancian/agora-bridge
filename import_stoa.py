@@ -25,7 +25,6 @@ LAST_SYNC_FILE = os.path.join(EXPORT_DIR, ".last_sync")
 
 # Spam Filter Constants
 SPAM_KEYWORDS = ['casino', 'cacuoc', 'nhacai', 'dangky', 'dangnhap', 'keonhacai', 'escort', 'hentai', 'chyoa']
-VN_CHARS = re.compile(r'[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]', re.IGNORECASE)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('stoa-exporter')
@@ -80,13 +79,10 @@ def is_spam(alias: str, content: str) -> Tuple[bool, str]:
     if content_length > 0:
         link_density = links_length / content_length
         
-    has_vn = VN_CHARS.search(content) is not None
-    
     score = 0
     # Link density over 25% is highly suspicious for a normal markdown doc
     if link_density > 0.25: score += 2
     if link_density > 0.50: score += 4
-    if has_vn: score += 2
     if any(k in content.lower() for k in SPAM_KEYWORDS): score += 3
 
     if score >= 4:

@@ -140,7 +140,7 @@ def git_sync():
         # Check if it's a git repo
         if not os.path.exists(".git"):
             subprocess.run(["git", "init"], check=True)
-            subprocess.run(["git", "branch", "-M", "main"], check=True)
+            subprocess.run(["git", "checkout", "-b", "main"], check=True)
             subprocess.run(["git", "remote", "add", "origin", GIT_REPO_URL], check=True)
 
         subprocess.run(["git", "add", "."], check=True)

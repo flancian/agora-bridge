@@ -13,7 +13,7 @@ import argparse
 # Configuration
 HEDGEDOC_URL = "https://doc.anagora.org"
 SSH_TARGET = "hedgedoc@patera"
-GIT_REPO_URL = "https://github.com/flancia-coop/doc.anagora.org"
+GIT_REPO_URL = "git@github.com:flancia-coop/doc.anagora.org.git"
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Import Stoa nodes from HedgeDoc')

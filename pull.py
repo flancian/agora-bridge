@@ -311,8 +311,8 @@ def main():
             Q.put((fedwiki_import, target, url, path))
             continue
 
-        if item.get('format') == "stoa-export":
-            Q.put((stoa_export, target, url, path))
+        if item.get('format') == "stoa":
+            Q.put((stoa_import, target, url, path))
             continue
         
         # Default to git for all other formats (markdown, obsidian, foam, etc.)

@@ -69,8 +69,14 @@ def is_spam(alias: str, content: str) -> Tuple[bool, str]:
     if re.search(r'(casino|bet|club|88).*\.(com|vip|io|org|net|ink)', alias, re.I):
         return True, "alias_pattern"
     
-    # Calculate link density
-    # Roughly estimate text length of all links
+    # Whitelist Agora go-links
+    if re.search(r'(\[\[go\]\]|#go\b)', content, re.I):
+        return False, "safe"
+    
+    # Calculate link density and count
+    links = re.findall(r'https?://[^\s]+', content)
+    num_links = len(links)
+    
     link_matches = re.finditer(r'https?://[^\s]+', content)
     links_length = sum(len(match.group(0)) for match in link_matches)
     content_length = len(content)
@@ -80,13 +86,15 @@ def is_spam(alias: str, content: str) -> Tuple[bool, str]:
         link_density = links_length / content_length
         
     score = 0
-    # Link density over 25% is highly suspicious for a normal markdown doc
-    if link_density > 0.25: score += 2
-    if link_density > 0.50: score += 4
+    # Link density checks only apply if there are at least 4 links in the document
+    if num_links >= 4:
+        if link_density > 0.25: score += 2
+        if link_density > 0.50: score += 4
+        
     if any(k in content.lower() for k in SPAM_KEYWORDS): score += 3
 
     if score >= 4:
-        return True, f"content_score:{score}_density:{link_density:.2f}"
+        return True, f"content_score:{score}_density:{link_density:.2f}_links:{num_links}"
     
     return False, "safe"
 

@@ -10,18 +10,19 @@ from typing import List, Tuple
 
 import argparse
 
-# Configuration
-HEDGEDOC_URL = "https://doc.anagora.org"
-SSH_TARGET = "hedgedoc@patera"
-GIT_REPO_URL = "git@github.com:flancia-coop/doc.anagora.org.git"
-
 # Parse arguments
 parser = argparse.ArgumentParser(description='Import Stoa nodes from HedgeDoc')
 parser.add_argument('--output-dir', dest='output_dir', type=str, default=os.path.expanduser("~/agora/stoa/doc.anagora.org"), help='The path to the output directory')
+parser.add_argument('--hedgedoc-url', dest='hedgedoc_url', type=str, default="https://doc.anagora.org", help='The URL of the HedgeDoc instance')
+parser.add_argument('--ssh-target', dest='ssh_target', type=str, default="hedgedoc@patera", help='The SSH target for database access (user@host)')
+parser.add_argument('--repo-url', dest='repo_url', type=str, default="git@github.com:flancia-coop/doc.anagora.org.git", help='The Git repository URL for pushing')
 args = parser.parse_args()
 
 EXPORT_DIR = os.path.abspath(args.output_dir)
 LAST_SYNC_FILE = os.path.join(EXPORT_DIR, ".last_sync")
+HEDGEDOC_URL = args.hedgedoc_url
+SSH_TARGET = args.ssh_target
+GIT_REPO_URL = args.repo_url
 
 # Spam Filter Constants
 SPAM_KEYWORDS = ['casino', 'cacuoc', 'nhacai', 'dangky', 'dangnhap', 'keonhacai', 'escort', 'hentai', 'chyoa']

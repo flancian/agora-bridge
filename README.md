@@ -135,10 +135,10 @@ These bots listen for activity on social platforms, reply to mentions of `[[wiki
 -   **Run in Development:** `./run-bluesky-bot-dev.sh`
 -   **Run in Production:** `./run-bluesky-bot-prod.sh`
 
-**Twitter Bot**
--   **Config:** `bots/twitter/agora-bot.yaml`
--   **Run in Development:** `./run-twitter-bot-dev.sh`
--   **Run in Production:** `./run-twitter-bot-prod.sh`
+**Twitter Bot** (Non-operative / Deprecated due to API changes and costs)
+-   Config: `bots/twitter/agora-bot.yaml`
+-   Run in Development: `./run-twitter-bot-dev.sh`
+-   Run in Production: `./run-twitter-bot-prod.sh`
 
 ### 4. Feed Puller
 
@@ -149,7 +149,22 @@ The `feed.py` script pulls content from Atom/RSS feeds, currently focused on Hyp
     uv run python feed.py
     ```
 
-### Social Media Bots
+### 5. Stoa Importer
+
+This script (`import_stoa.py`) is the content integration engine for the Stoa (HedgeDoc instance).
+
+-   **Function**:
+    - Connects to the database on the remote HedgeDoc host (configurable via `--ssh-target`, default: `hedgedoc@patera`) via SSH/psql to fetch note aliases.
+    - Downloads modified notes via HTTP (configurable via `--hedgedoc-url`, default: `https://doc.anagora.org`) and filters out SEO spam (casinos, adult content) using link density ratios, alias pattern checking, and target keywords.
+    - Automatically initializes new target folders on `main` (customizable via `--repo-url`), commits clean notes, and pushes them to GitHub.
+-   **Run Manually**:
+    ```bash
+    uv run python3 import_stoa.py --output-dir ~/agora/stoa/doc.anagora.org
+    ```
+-   **Daemon Automation**:
+    - Integrated directly into the **Pull Worker** (`pull.py`) background daemon. Any source in `sources.yaml` configured with `format: stoa` will automatically trigger `import_stoa.py` and run it incrementally.
+
+## Social Media Bots
 
 Work is always in progress :) 
 

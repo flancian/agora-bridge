@@ -281,3 +281,9 @@
   url: https://github.com/kvistgaard/sparql.git
   format: logseq
 
+- target: garden/sgmk
+  url: https://wiki.sgmk-ssam.ch/api.php
+  web: https://wiki.sgmk-ssam.ch/wiki/{slug}
+  format: mediawiki
+
+

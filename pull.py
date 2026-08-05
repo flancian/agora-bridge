@@ -21,6 +21,7 @@ import logging
 import os
 import time
 import yaml
+import queue
 import sqlite3
 from multiprocessing import Pool, JoinableQueue, Process
 import subprocess
@@ -28,6 +29,8 @@ this_path = os.getcwd()
 
 # for git commands, in seconds.
 TIMEOUT="60"
+CLONE_TIMEOUT="300"
+FETCH_TIMEOUT="180"
 
 class StatusTracker:
     def __init__(self, db_path):
@@ -81,12 +84,23 @@ def dir_path(string):
             L.error(output.stderr)
     return os.path.abspath(string)
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 parser = argparse.ArgumentParser(description='Agora Bridge')
 parser.add_argument('--config', dest='config', type=argparse.FileType('r'), required=True, help='The path to a YAML file describing the digital gardens to consume.')
 parser.add_argument('--output-dir', dest='output_dir', type=dir_path, required=True, help='The path to a directory where the digital gardens will be stored (one subdirectory per user).')
-parser.add_argument('--verbose', dest='verbose', type=bool, default=False, help='Whether to log more information.')
-parser.add_argument('--reset', dest='reset', type=bool, default=False, help='Whether to git reset --hard whenever a pull fails.')
-parser.add_argument('--reset_only', dest='reset_only', type=bool, default=False, help='Whether do reset --hard instead of pulling.')
+parser.add_argument('--verbose', dest='verbose', type=str2bool, default=False, help='Whether to log more information.')
+parser.add_argument('--reset', dest='reset', type=str2bool, default=False, help='Whether to git reset --hard whenever a pull fails.')
+parser.add_argument('--reset_only', dest='reset_only', type=str2bool, default=False, help='Whether do reset --hard instead of pulling.')
+parser.add_argument('--shallow', dest='shallow', type=str2bool, default=False, help='Whether to do a shallow git clone (--depth 1).')
 parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
 args = parser.parse_args()
 
@@ -114,8 +128,13 @@ def git_clone(tracker, target, url, path):
     env = os.environ.copy()
     env['GIT_TERMINAL_PROMPT'] = '0'
 
+    cmd = ['timeout', CLONE_TIMEOUT, 'git', 'clone']
+    if args.shallow:
+        cmd.extend(['--depth', '1'])
+    cmd.extend([url, path])
+
     try:
-        output = subprocess.run(['timeout', TIMEOUT, 'git', 'clone', url, path], capture_output=True, env=env)
+        output = subprocess.run(cmd, capture_output=True, env=env)
         if output.returncode == 0:
             tracker.update(target, url=url, success=True)
         elif output.returncode == 124:
@@ -208,19 +227,10 @@ def git_reset(path):
 def git_pull(tracker, target, url, path):
 
     if not os.path.exists(path):
-        L.warning(f"{path} doesn't exist, checking if clone error already recorded.")
-        # Check if we already have an error (e.g. from git_clone)
-        with sqlite3.connect(tracker.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT status, last_error FROM garden_status WHERE target=?", (target,))
-            row = cursor.fetchone()
-            if row and row['status'] == 'ERROR' and row['last_error']:
-                L.info(f"Preserving existing error for {target}: {row['last_error']}")
-                return
-
-        tracker.update(target, url=url, success=False, error=f"Path {path} does not exist (clone failed?)")
-        return
+        L.info(f"{path} doesn't exist, attempting git_clone.")
+        git_clone(tracker, target, url, path)
+        if not os.path.exists(path):
+            return
 
     try:
         os.chdir(path)
@@ -284,7 +294,36 @@ def fedwiki_import(tracker, target, url, path):
     except Exception as e:
         tracker.update(target, url=url, success=False, error=str(e))
 
-def worker(db_path):
+def mediawiki_import(tracker, target, url, path):
+    os.chdir(this_path)
+    try:
+        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_mediawiki.py", f"--url={url}", f"--output-dir={path}"], capture_output=True)
+        if output.returncode == 0:
+            tracker.update(target, url=url, success=True)
+        else:
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            L.error(f"Error in mediawiki_import: {error_msg}")
+            tracker.update(target, url=url, success=False, error=error_msg)
+    except Exception as e:
+        L.error(f"Exception in mediawiki_import: {e}")
+        tracker.update(target, url=url, success=False, error=str(e))
+
+def wayback_import(tracker, target, url, path):
+    os.chdir(this_path)
+    try:
+        domain = url.replace("https://", "").replace("http://", "").split("/")[0]
+        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_wayback.py", f"--domain={domain}", f"--output-dir={path}"], capture_output=True)
+        if output.returncode == 0:
+            tracker.update(target, url=url, success=True)
+        else:
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            L.error(f"Error in wayback_import: {error_msg}")
+            tracker.update(target, url=url, success=False, error=error_msg)
+    except Exception as e:
+        L.error(f"Exception in wayback_import: {e}")
+        tracker.update(target, url=url, success=False, error=str(e))
+
+def worker(Q, db_path):
     tracker = StatusTracker(db_path)
     while True:
         try:
@@ -295,9 +334,11 @@ def worker(db_path):
             func(tracker, *args_for_func)
             Q.task_done()
             # if this is a pull, schedule the same task for another run later.
-            if func in (git_pull, fedwiki_import, stoa_import):
+            if func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, wayback_import):
                 Q.put(task)
             time.sleep(args.delay)
+        except queue.Empty:
+            continue
         except Exception as e:
             L.error(f"Worker exception: {e}")
             # Continue the loop
@@ -325,6 +366,14 @@ def main():
         if item.get('format') == "stoa":
             Q.put((stoa_import, target, url, path))
             continue
+
+        if item.get('format') == "mediawiki":
+            Q.put((mediawiki_import, target, url, path))
+            continue
+
+        if item.get('format') == "wayback":
+            Q.put((wayback_import, target, url, path))
+            continue
         
         # Default to git for all other formats (markdown, obsidian, foam, etc.)
         # schedule one 'clone' run for every garden, in case this is a new garden (or agora).
@@ -334,7 +383,7 @@ def main():
 
     processes = []
     for i in range(WORKERS):
-        worker_process = Process(target=worker, args=(db_path,), daemon=True, name='worker_process_{}'.format(i))
+        worker_process = Process(target=worker, args=(Q, db_path), daemon=True, name='worker_process_{}'.format(i))
         processes.append(worker_process)
 
     L.info(f"Starting {WORKERS} workers to execute work items. Status tracked in {db_path}")

@@ -36,6 +36,8 @@ Currently supports digital gardens stored on [[git]], as per https://anagora.org
 
 See https://anagora.org/node/an-agora for more.
 
+For a deep dive into the ethos of our AI development and the project's core values, please read the [Philosophy of AI Applications](https://github.com/flancian/agora-server/blob/main/Philosophy%20of%20AI%20Applications.md) in the Agora Server repository.
+
 ## The Agora Protocol
 
 The Agora Protocol is not a formal network protocol, but rather a set of core principles that guide the project's design:

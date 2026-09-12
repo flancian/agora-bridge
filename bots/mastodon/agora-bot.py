@@ -17,13 +17,15 @@
 
 import argparse
 import glob
+import html
 import logging
 import os
 import subprocess
 import random
 import re
 import time
-import urllib
+import urllib.request
+import xml.etree.ElementTree as ET
 import yaml
 
 from collections import OrderedDict
@@ -78,6 +80,8 @@ class AgoraBot(StreamListener):
         self.mastodon = mastodon
         self.bot_username = bot_username
         self.last_reply_time = 0
+        self._followers_cache = []
+        self._followers_cache_time = 0
         L.info(f'[[agora bot]] for {bot_username} started!')
 
     def send_toot(self, msg, in_reply_to_id=None):
@@ -264,13 +268,18 @@ class AgoraBot(StreamListener):
         else:
             L.info("-> failed to send reply (throttled or error), not logging so we can retry later.")
 
-    def get_followers(self):
+    def get_followers(self, max_age=300):
+        now = time.time()
+        if self._followers_cache and (now - self._followers_cache_time < max_age):
+            return self._followers_cache
         # First batching method, we will probably need more of these :)
         batch = self.mastodon.account_followers(self.mastodon.me().id, limit=80)
         followers = []
         while batch:
             followers += batch
             batch = self.mastodon.fetch_next(batch)
+        self._followers_cache = followers
+        self._followers_cache_time = now
         return followers
 
     def get_following(self):
@@ -280,6 +289,34 @@ class AgoraBot(StreamListener):
             following += batch
             batch = self.mastodon.fetch_next(batch)
         return following
+
+    def sync_remote_follower_posts(self, user):
+        """For remote followers, fetch public RSS to discover un-federated posts and resolve them into GoToSocial."""
+        acct = user.get('acct') if isinstance(user, dict) else getattr(user, 'acct', '')
+        if '@' not in acct:
+            return
+        username, domain = acct.split('@', 1)
+        rss_url = f"https://{domain}/@{username}.rss"
+        try:
+            req = urllib.request.Request(rss_url, headers={'User-Agent': 'agora-bot/1.0'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                xml_data = resp.read()
+            root = ET.fromstring(xml_data)
+            for item in root.findall('./channel/item'):
+                link_el = item.find('link')
+                desc_el = item.find('description')
+                if link_el is None or not link_el.text:
+                    continue
+                desc_text = desc_el.text if desc_el is not None and desc_el.text else ""
+                if not (WIKILINK_RE.search(desc_text) or HASHTAG_RE.search(desc_text)):
+                    continue
+                item_url = link_el.text.strip()
+                try:
+                    self.mastodon.search_v2(item_url, resolve=True)
+                except Exception as e:
+                    L.debug(f"Could not resolve remote status {item_url}: {e}")
+        except Exception as e:
+            L.debug(f"Could not fetch RSS for remote user {acct}: {e}")
 
     def get_statuses(self, user):
         # Added on [[2025-03-23]] to work around weird Mastodon bug with sorting, and it seems generally useful so...
@@ -311,7 +348,7 @@ class AgoraBot(StreamListener):
         return posts
 
     def is_following(self, user):
-        following_accounts = [f['acct'] for f in self.get_followers()]
+        following_accounts = {f['acct'] for f in self.get_followers()}
         if user not in following_accounts:
             L.info(f"account {user} not in followers: {following_accounts}.")
             return False
@@ -329,7 +366,7 @@ class AgoraBot(StreamListener):
         if not self.is_following(user):
             return True
 
-        wikilinks = WIKILINK_RE.findall(status.content)
+        wikilinks = [html.unescape(w) for w in WIKILINK_RE.findall(status.content)]
         entities = uniq(wikilinks)
         msg = self.build_reply(status, entities)
         self.maybe_reply(status, msg, entities)
@@ -350,7 +387,7 @@ class AgoraBot(StreamListener):
         if status['reblog'] and not self.is_mentioned_in(user, 'opt in'):
             L.info(f'Not handling boost from non-opted-in user.')
             return True
-        hashtags = HASHTAG_RE.findall(status.content)
+        hashtags = [html.unescape(h) for h in HASHTAG_RE.findall(status.content)]
         entities = uniq(hashtags)
         msg = self.build_reply(status, entities)
         self.maybe_reply(status, msg, entities)
@@ -495,6 +532,7 @@ def main():
 
             if args.catch_up:
                 L.info(f"trying to catch up with any missed toots for user {user.acct}.")
+                bot.sync_remote_follower_posts(user)
                 # the mastodon API... sigh.
                 # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
                 #   (this might be a limitation of botsin.space?)

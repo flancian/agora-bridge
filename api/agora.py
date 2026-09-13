@@ -5,6 +5,9 @@ import subprocess
 import sqlite3
 import secrets
 import string
+import re
+import urllib.parse
+import shutil
 from datetime import datetime
 from .forgejo import ForgejoClient
 
@@ -241,6 +244,50 @@ def index():
         service_status=service_status
     )
 
+def is_valid_git_repository(url: str, timeout: int = 10) -> tuple[bool, str]:
+    """
+    Checks if a URL points to an accessible remote git repository.
+    Acts as a proof-of-work / proof-of-garden verification to keep out spam.
+    """
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    try:
+        res = subprocess.run(
+            ['git', 'ls-remote', url],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env
+        )
+        if res.returncode == 0:
+            return True, ""
+        err = res.stderr.strip() or f"git ls-remote exited with code {res.returncode}"
+        return False, err
+    except subprocess.TimeoutExpired:
+        return False, f"Connection timed out after {timeout} seconds."
+    except Exception as e:
+        return False, str(e)
+
+
+def log_application(target: str, url: str, email: str = None, message: str = None, status: str = "PENDING", reason: str = None):
+    try:
+        log_path = os.path.expanduser('~/agora/applications.log')
+        with open(log_path, 'a') as f:
+            timestamp = datetime.now().isoformat()
+            log_entry = f"[{timestamp}] [{status}] Source: {target} | URL: {url}"
+            if email:
+                log_entry += f" | Email: {email}"
+            if message:
+                clean_msg = " ".join(message.split())
+                log_entry += f" | Message: {clean_msg}"
+            if reason:
+                clean_reason = " ".join(reason.split())
+                log_entry += f" | Reason: {clean_reason}"
+            f.write(log_entry + "\n")
+    except IOError as e:
+        current_app.logger.error(f"Failed to write application log: {e}")
+
+
 @bp.route('/sources', methods=['POST'])
 def add_source():
     """
@@ -249,48 +296,54 @@ def add_source():
     Parameters:
     JSON Payload:
     - url (string, required): The URL of the source repository.
-    - target (string, required): The slug/name of the source.
+    - target (string, required): The slug/name of the source (e.g. 'garden/username' or 'stoa/name').
     - type (string, required): The type of the source ('garden' or 'stoa'). Used as path prefix.
-    - format (string, optional): The format of the source (e.g., 'git', 'fedwiki'). Defaults to 'git'.
+    - format (string, optional): The format of the source (e.g., 'markdown', 'foam', 'git', 'fedwiki'). Defaults to 'git'.
     - web (string, optional): The URL template for viewing the rendered page.
     - message (string, optional): A reason for joining or message to the admins.
+    - email (string, optional): Contact email.
+    - honeypot / website (string, optional): Anti-spam honeypot field.
     """
     if not request.json or 'url' not in request.json or 'target' not in request.json or 'type' not in request.json:
         return jsonify({'error': 'Invalid request. JSON payload with "url", "target" and "type" is required.'}), 400
 
-    source_type = request.json['type']
+    # Anti-spam honeypot check (hidden form fields often filled by automated bots)
+    if request.json.get('honeypot') or request.json.get('website'):
+        current_app.logger.warning(f"Honeypot triggered from {request.remote_addr}")
+        return jsonify({'error': 'Invalid submission.'}), 400
+
+    source_type = str(request.json['type']).strip()
     if source_type not in ['garden', 'stoa']:
-         return jsonify({'error': 'Invalid source type. Must be either "garden" or "stoa".'}), 400
+        return jsonify({'error': 'Invalid source type. Must be either "garden" or "stoa".'}), 400
 
     # We trust the client to provide the full path (e.g. garden/user) in 'target'.
-    full_target = request.json['target']
+    full_target = str(request.json['target']).strip()
+
+    # Security check on target: prevent directory traversal or malformed target paths
+    if not re.match(r'^(garden|stoa)/[a-zA-Z0-9_\-\.]+$', full_target):
+        return jsonify({'error': 'Invalid target name. Target must be formatted as "garden/<name>" or "stoa/<name>" with alphanumeric characters, dashes, dots, or underscores.'}), 400
+
+    if not full_target.startswith(f"{source_type}/"):
+        return jsonify({'error': f'Target "{full_target}" does not match source type "{source_type}".'}), 400
+
+    raw_url = str(request.json['url']).strip()
+    parsed_url = urllib.parse.urlparse(raw_url)
+    if parsed_url.scheme not in ('http', 'https', 'git', 'ssh'):
+        return jsonify({'error': 'Invalid URL scheme. Must be http, https, git, or ssh.'}), 400
+
+    format_type = str(request.json.get('format', 'git')).strip()
 
     new_source = {
-        'url': request.json['url'],
+        'format': format_type,
         'target': full_target,
-        'format': request.json.get('format', 'git')
+        'url': raw_url
     }
     
-    if 'web' in request.json:
-        new_source['web'] = request.json['web']
+    if 'web' in request.json and request.json['web']:
+        new_source['web'] = str(request.json['web']).strip()
 
     message_content = request.json.get('message')
     email_content = request.json.get('email')
-    
-    if message_content or email_content:
-        # Log the message/email to a separate file for review
-        try:
-            log_path = os.path.expanduser('~/agora/applications.log')
-            with open(log_path, 'a') as f:
-                timestamp = datetime.now().isoformat()
-                log_entry = f"[{timestamp}] Source: {full_target} | URL: {new_source['url']}"
-                if email_content:
-                    log_entry += f" | Email: {email_content}"
-                if message_content:
-                    log_entry += f" | Message: {message_content}"
-                f.write(log_entry + "\n")
-        except IOError as e:
-            current_app.logger.error(f"Failed to write application log: {e}")
 
     config_path = os.path.expanduser('~/agora/sources.yaml')
     sources = []
@@ -299,45 +352,73 @@ def add_source():
         with open(config_path, 'r') as f:
             sources = yaml.safe_load(f) or []
     except FileNotFoundError:
-        # If the file doesn't exist, we'll create it.
         pass
     except yaml.YAMLError as e:
         return jsonify({'error': f"Error parsing YAML file: {e}"}), 500
 
-    # Check for duplicates
+    # Check for duplicates in config
     if any(s.get('url') == new_source['url'] for s in sources):
+        log_application(full_target, raw_url, email_content, message_content, status="REJECTED: DUPLICATE_URL")
         return jsonify({'error': f"Source with URL {new_source['url']} already exists."}), 409
 
-    sources.append(new_source)
+    if any(s.get('target') == new_source['target'] for s in sources):
+        log_application(full_target, raw_url, email_content, message_content, status="REJECTED: DUPLICATE_TARGET")
+        return jsonify({'error': f"Source with target {new_source['target']} already exists."}), 409
 
+    agora_path = os.path.expanduser('~/agora')
+    target_path = os.path.join(agora_path, full_target)
+
+    # Check for existing directory on disk
+    if os.path.exists(target_path) and os.path.isdir(target_path) and os.listdir(target_path):
+        log_application(full_target, raw_url, email_content, message_content, status="REJECTED: DIRECTORY_EXISTS")
+        return jsonify({'error': f"Target directory already exists on server: {full_target}"}), 409
+
+    # Proof of work: verify URL is an accessible, valid git repository
+    # (fedwiki is exempt since it uses a custom import pipeline)
+    if format_type != 'fedwiki':
+        is_valid, err = is_valid_git_repository(raw_url)
+        if not is_valid:
+            log_application(full_target, raw_url, email_content, message_content, status="REJECTED: INVALID_GIT_REPO", reason=err)
+            return jsonify({
+                'error': f"Proof of work failed: The URL is not an accessible git repository. {err}"
+            }), 400
+
+    # Clone source BEFORE modifying sources.yaml
+    message = 'Source added successfully.'
+    if format_type != 'fedwiki':
+        try:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            env = os.environ.copy()
+            env['GIT_TERMINAL_PROMPT'] = '0'
+            subprocess.run(['git', 'clone', new_source['url'], target_path], check=True, capture_output=True, text=True, timeout=60, env=env)
+            message = "Source verified, cloned, and added successfully."
+        except subprocess.TimeoutExpired:
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path, ignore_errors=True)
+            log_application(full_target, raw_url, email_content, message_content, status="FAILED: CLONE_TIMEOUT")
+            return jsonify({'error': 'Git clone timed out after 60 seconds.'}), 504
+        except subprocess.CalledProcessError as e:
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path, ignore_errors=True)
+            log_application(full_target, raw_url, email_content, message_content, status="FAILED: CLONE_FAILED", reason=e.stderr.strip())
+            return jsonify({'error': f"Git clone failed: {e.stderr.strip()}"}), 400
+        except Exception as e:
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path, ignore_errors=True)
+            log_application(full_target, raw_url, email_content, message_content, status="FAILED: CLONE_ERROR", reason=str(e))
+            return jsonify({'error': f"An error occurred during cloning: {str(e)}"}), 500
+
+    # Now that clone succeeded, append cleanly to sources.yaml
     try:
-        with open(config_path, 'w') as f:
-            yaml.dump(sources, f, default_flow_style=False)
+        entry_yaml = yaml.dump([new_source], default_flow_style=False)
+        with open(config_path, 'a') as f:
+            f.write(entry_yaml)
     except IOError as e:
+        if format_type != 'fedwiki' and os.path.exists(target_path):
+            shutil.rmtree(target_path, ignore_errors=True)
         return jsonify({'error': f"Could not write to config file: {e}"}), 500
 
-    # Trigger immediate clone
-    # We should do this asynchronously ideally, but for now synchronous is fine for MVP.
-    message = 'Source added successfully.'
-    # We clone for everything EXCEPT fedwiki (which needs a special import process)
-    if new_source.get('format') != 'fedwiki':
-        agora_path = os.path.expanduser('~/agora')
-        target_path = os.path.join(agora_path, full_target)
-        
-        try:
-            if not os.path.exists(target_path):
-                # Ensure parent directory exists
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                subprocess.run(['git', 'clone', new_source['url'], target_path], check=True, capture_output=True, text=True)
-                message = "Source added and cloned successfully."
-            else:
-                message = "Source added to config, but directory already exists (skipped clone)."
-        except subprocess.CalledProcessError as e:
-            # Warning: config was updated but clone failed.
-            return jsonify({'message': 'Source added to config, but git clone failed.', 'error': e.stderr, 'source': new_source}), 202
-        except Exception as e:
-             return jsonify({'message': 'Source added to config, but an error occurred during cloning.', 'error': str(e), 'source': new_source}), 202
-
+    log_application(full_target, raw_url, email_content, message_content, status="ACCEPTED")
     return jsonify({'message': message, 'source': new_source}), 201
 
 @bp.route('/provision', methods=['POST'])
@@ -417,12 +498,11 @@ def provision_garden():
         except FileNotFoundError:
             pass
             
-        # Append
         # Check duplicate
-        if not any(s.get('url') == new_source['url'] for s in existing_sources):
-            existing_sources.append(new_source)
-            with open(config_path, 'w') as f:
-                yaml.dump(existing_sources, f, default_flow_style=False)
+        if not any(s.get('url') == new_source['url'] for s in existing_sources) and not any(s.get('target') == new_source['target'] for s in existing_sources):
+            entry_yaml = yaml.dump([new_source], default_flow_style=False)
+            with open(config_path, 'a') as f:
+                f.write(entry_yaml)
                 
             # Trigger clone (it's empty but we need the folder structure)
             # The repo will have a README from auto_init

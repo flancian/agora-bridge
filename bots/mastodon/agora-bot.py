@@ -361,6 +361,13 @@ class AgoraBot(StreamListener):
             L.info(f'Not handling boost.')
             return True
 
+        # Do not reply to our own toots.
+        author_username = status['account'].get('username', '')
+        my_username = self.bot_username.split('@')[0]
+        if author_username == my_username:
+            L.debug('Not handling own toot.')
+            return True
+
         # We want to only reply to accounts that follow us.
         user = status['account']['acct']
         if not self.is_following(user):
@@ -373,6 +380,14 @@ class AgoraBot(StreamListener):
 
     def handle_hashtag(self, status, match=None):
         L.debug(f'handling at least one hashtag: {status.content}, {match}')
+
+        # Do not reply to our own toots.
+        author_username = status['account'].get('username', '')
+        my_username = self.bot_username.split('@')[0]
+        if author_username == my_username:
+            L.debug('Not handling own toot.')
+            return True
+
         user = status['account']['acct']
 
         # We want to only reply to accounts that follow us.

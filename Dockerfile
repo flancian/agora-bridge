@@ -70,5 +70,5 @@ ENV FLASK_APP=api
 ENV FLASK_ENV=production
 ENV AGORA_PATH=/home/agora/agora
 
-# Default to running the bridge API via gunicorn
-CMD ["uv", "run", "gunicorn", "-w", "4", "-b", "0.0.0.0:5018", "api:create_app()"]
+# Default to running the bridge entrypoint (starts gunicorn in production)
+CMD ["./entrypoint.sh"]

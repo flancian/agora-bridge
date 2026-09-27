@@ -1,73 +1,74 @@
-# In development, but this should work. 
+# [[agora bridge]]
 #
-# Results in a simple agora-bridge container running repository pulls only. This is meant to be used with docker-compose and [[coop cloud]] (based on docker swarm) to run alongside an [[agora server]] (which runs the UI/renders nodes).
-
-# As of 2023, you probably want to look at the [[coop cloud]] recipe if you are considering running an Agora for your community :) https://anagora.org/agora-recipe for more.
+# Part of the [[Agora of Flancia]] — an open knowledge commons.
+# https://anagora.org/agora-bridge
 #
-# To build (you should be able to replace docker with podman):
+# Connects the Agora to the fediverse and external streams.
+# Runs alongside [[agora server]] (which renders nodes and the graph).
 #
-# $ docker build -t agora-bridge .
+# In 2023, this started as a Debian + Poetry container for [[coop cloud]] (based on Docker Swarm).
+# In 2026, we modernized it to Python 3.12 + [[uv]] for [[flan.agor.ai]] and the [[agora recipe]]:
+# See https://anagora.org/agora-recipe for more.
+#
+# To build with [[podman]] or [[docker]]:
+#
+#   $ podman build -t agora-bridge .
 #
 # To drop into a debugging shell in the container:
 #
-# $ docker run -it --entrypoint /bin/bash agora-bridge
+#   $ podman run -it --entrypoint /bin/bash agora-bridge
 #
-# Aisde: if you are running podman rootless, check that you can write to 'agora' in the container. You may need to:
+# If you are running rootless, check that you can write to 'agora' in the container:
 #
-# $ podman unshare chgrp -R 1001 agora  # I only tested this with podman so far.
+#   $ podman unshare chgrp -R 1000 agora
 #
-# To then run an Agora Bridge interactively based directly on the upstream container on port 5017:
+# To run interactively on port 5018, mounting your Agora root:
 #
-# $ docker run -it -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora agora-bridge
+#   $ podman run -it -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora agora-bridge
 #
-# To run the Agora Bridge detached (serving mode): 
+# Or run the full stack with [[podman-compose]] / [[docker compose]] from [[agora]]:
 #
-# $ docker run -dt -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora agora-bridge
+#   $ podman-compose up
 #
-# To run the reference Agora Bridge directly from upstream packages, skipping building:
-#
-# $ docker run -dt -p 5018:5018 -v ${HOME}/agora:/home/agora/agora:Z -u agora git.coopcloud.tech/flancian/agora-bridge
-#
-# Enjoy!
+# Enjoy! For the benefit of all beings.
 
-FROM debian
+FROM python:3.12-slim
 
-MAINTAINER Flancian "0@flancia.org"
+LABEL maintainer="Flancian <0@flancia.org>"
+LABEL org.opencontainers.image.source="https://github.com/flancian/agora-bridge"
+LABEL org.opencontainers.image.description="Agora Bridge: federating the knowledge commons"
 
-# We install first as root.
-USER root
+# Install system dependencies (git is required for pulling gardens and proof-of-work checks)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update
-RUN apt-get install -y git python3 python3-pip python3-poetry npm
-# We don't need these files in the finished container; this should run after all apt-get invocations.
-RUN rm -rf /var/lib/apt/lists/*
-RUN groupadd -r agora -g 1000 && useradd -u 1000 -r -g agora -s /bin/bash -c "Agora" agora
-RUN mkdir -p /home/agora && chown -R agora:agora /home/agora
+# Install uv from official image (fast, reproducible Python tooling)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-WORKDIR /home/agora
-
-USER agora
-
-RUN mkdir /home/agora/agora
-
-RUN git clone https://github.com/flancian/agora-bridge.git
-
-# This technically shouldn't be needed as we expect the user to mount an Agora as a volume, 
-# but it makes the Agora easier to run off-the-shelf from head. 
-# RUN git clone https://github.com/flancian/agora.git
-# RUN git clone https://gitlab.com/flancia/agora.git
-# Disabled for now as it's probably better to mount the Agora root as a volume.
+# We run as the agora user (UID 1000)
+RUN groupadd -r agora -g 1000 && useradd -u 1000 -r -g agora -s /bin/bash -c "Agora" agora \
+    && mkdir -p /home/agora/agora /home/agora/agora-bridge \
+    && chown -R agora:agora /home/agora
 
 WORKDIR /home/agora/agora-bridge
+USER agora
+ENV PATH="/home/agora/.local/bin:$PATH"
 
-# This seems to work around some version issues. Why it's needed I can't currently tell.
-RUN poetry lock
-RUN poetry install
+# Install Python dependencies first for caching layers
+COPY --chown=agora:agora pyproject.toml README.md ./
+RUN uv sync --no-install-project
+
+# Copy application code from local context
+COPY --chown=agora:agora . .
+RUN uv sync
+
 EXPOSE 5018
+ENV FLASK_APP=api
+ENV FLASK_ENV=production
+ENV AGORA_PATH=/home/agora/agora
 
-# This should probably be ./run-prod.sh plus nginx.
-# But perhaps we want to move on to [[docker compose]] for that?
-# [[agora bridge]] and [[agora server]] could also be separate containers with [[agora]] being a shared volume?
-CMD ./entrypoint.sh
-# for debugging
-# CMD bash
+# Default to running the bridge API via gunicorn
+CMD ["uv", "run", "gunicorn", "-w", "4", "-b", "0.0.0.0:5018", "api:create_app()"]

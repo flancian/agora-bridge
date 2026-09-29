@@ -95,59 +95,90 @@ def html_to_markdown(html_content: str, domain: str) -> str:
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     return text.strip()
 
-def discover_pages_via_cdx(domain: str, limit: int, ctx: ssl.SSLContext) -> list:
-    """Queries Wayback Machine CDX API for snapshots under domain and extracts links from start page."""
-    L.info(f"Querying Wayback CDX API for domain: {domain}")
-    cdx_url = f"https://web.archive.org/cdx/search/cdx?url={domain}/*&output=json&filter=statuscode:200&filter=mimetype:text/html&fl=original,timestamp&limit={limit*3}"
-    req = urllib.request.Request(cdx_url, headers={"User-Agent": "AgoraBridge/1.0"})
+def discover_pages_via_cdx(target: str, limit: int, ctx: ssl.SSLContext) -> list:
+    """Queries Wayback Machine CDX API for snapshots under domain/url with HTTPS and HTTP fallback."""
+    L.info(f"Querying Wayback CDX API for: {target}")
+    query = target.replace("https://", "").replace("http://", "").rstrip("/*")
+    domain = query.split("/")[0]
+
+    cdx_urls = [
+        f"https://web.archive.org/cdx/search/cdx?url={query}/*&output=json&filter=statuscode:200&filter=mimetype:text/html&fl=original,timestamp&limit={limit*3}",
+        f"http://web.archive.org/cdx/search/cdx?url={query}/*&output=json&filter=statuscode:200&filter=mimetype:text/html&fl=original,timestamp&limit={limit*3}"
+    ]
 
     urls_map = {}
-    try:
-        with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            for row in data[1:]:
-                orig, ts = row[0], row[1]
-                # Filter out asset and system URLs
-                if not any(ext in orig for ext in [".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf", ".json", ".txt", "do="]):
-                    urls_map[orig] = ts
-    except Exception as e:
-        L.error(f"CDX query failed: {e}")
+    success = False
+    for cdx_url in cdx_urls:
+        req = urllib.request.Request(cdx_url, headers={"User-Agent": "AgoraBridge/1.0"})
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                for row in data[1:]:
+                    orig, ts = row[0], row[1]
+                    if not any(ext in orig for ext in [".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".pdf", ".json", ".txt", "do="]):
+                        urls_map[orig] = ts
+                success = True
+                break
+        except Exception as e:
+            L.warning(f"CDX query failed for {cdx_url}: {e}")
+
+    if not success:
+        L.error(f"All CDX queries failed for {target}")
 
     # Also crawl internal links from main page snapshot if available
     main_url = f"https://{domain}/"
     if main_url in urls_map:
         main_ts = urls_map[main_url]
-        wayback_main = f"https://web.archive.org/web/{main_ts}id_/{main_url}"
-        try:
-            m_req = urllib.request.Request(wayback_main, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(m_req, context=ctx, timeout=15) as resp:
-                main_html = resp.read().decode("utf-8", errors="ignore")
-                sub_links = re.findall(r'href=["\'](/[^"\']+)["\']', main_html)
-                for link in sub_links:
-                    link_clean = link.split("?")[0].rstrip("/")
-                    if link_clean and not any(ext in link_clean for ext in [".css", ".js", ".png", ".jpg", ".gif", ".ico", ".svg", "lib/"]):
-                        full_orig = f"https://{domain}{link_clean}"
-                        if full_orig not in urls_map:
-                            # Use empty timestamp so Wayback Machine redirects to the latest available snapshot for this URL
-                            urls_map[full_orig] = ""
-        except Exception as e:
-            L.error(f"Failed to extract subpages from main page: {e}")
+        for scheme in ["https", "http"]:
+            wayback_main = f"{scheme}://web.archive.org/web/{main_ts}id_/{main_url}"
+            try:
+                m_req = urllib.request.Request(wayback_main, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(m_req, context=ctx, timeout=8) as resp:
+                    main_html = resp.read().decode("utf-8", errors="ignore")
+                    sub_links = re.findall(r'href=["\'](/[^"\']+)["\']', main_html)
+                    for link in sub_links:
+                        link_clean = link.split("?")[0].rstrip("/")
+                        if link_clean and not any(ext in link_clean for ext in [".css", ".js", ".png", ".jpg", ".gif", ".ico", ".svg", "lib/"]):
+                            full_orig = f"https://{domain}{link_clean}"
+                            if full_orig not in urls_map:
+                                urls_map[full_orig] = ""
+                    break
+            except Exception as e:
+                L.warning(f"Failed to extract subpages from {wayback_main}: {e}")
 
-    L.info(f"Found {len(urls_map)} unique page snapshots for {domain}")
+    L.info(f"Found {len(urls_map)} unique page snapshots for {target}")
     return list(urls_map.items())[:limit]
 
-def fetch_and_convert_page(orig_url: str, timestamp: str, domain: str, output_dir: str, ctx: ssl.SSLContext):
+def fetch_and_convert_page(orig_url: str, timestamp: str, domain: str, output_dir: str, ctx: ssl.SSLContext) -> bool:
     """Fetches snapshot HTML from Wayback Machine and converts to Markdown."""
-    if timestamp:
-        wayback_url = f"https://web.archive.org/web/{timestamp}id_/{orig_url}"
-    else:
-        wayback_url = f"https://web.archive.org/web/2/{orig_url}"
-    req = urllib.request.Request(wayback_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+    # Fast check: if file already exists from a previous run, skip network download
+    slug = orig_url.split("?")[-1].replace("id=", "").rstrip("/").split("/")[-1]
+    slug = urllib.parse.unquote(slug)
+    if slug and slug != domain and "doku.php" not in slug and "index.php" not in slug:
+        fast_filename = sanitize_filename(slug) + ".md"
+        if os.path.exists(os.path.join(output_dir, fast_filename)):
+            return True
+
+    schemes = ["https", "http"]
+    html = ""
+    for scheme in schemes:
+        if timestamp:
+            wayback_url = f"{scheme}://web.archive.org/web/{timestamp}id_/{orig_url}"
+        else:
+            wayback_url = f"{scheme}://web.archive.org/web/2/{orig_url}"
+        req = urllib.request.Request(wayback_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            if html:
+                break
+        except Exception as e:
+            L.warning(f"Failed to fetch {wayback_url}: {e}")
+
+    if not html:
+        return False
 
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-
         # Extract page title / slug
         slug = orig_url.split("?")[-1].replace("id=", "").rstrip("/").split("/")[-1]
         slug = urllib.parse.unquote(slug)
@@ -165,7 +196,7 @@ def fetch_and_convert_page(orig_url: str, timestamp: str, domain: str, output_di
 
         markdown = html_to_markdown(body_html, domain)
         if not markdown or len(markdown) < 20:
-            return
+            return False
 
         filename = sanitize_filename(slug) + ".md"
         filepath = os.path.join(output_dir, filename)
@@ -173,13 +204,16 @@ def fetch_and_convert_page(orig_url: str, timestamp: str, domain: str, output_di
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"# {slug}\n\n{markdown}\n")
         L.debug(f"Saved subnode: {filename}")
+        return True
 
     except Exception as e:
-        L.error(f"Failed to fetch/convert {wayback_url}: {e}")
+        L.error(f"Failed to convert {orig_url}: {e}")
+        return False
 
 def main():
     parser = argparse.ArgumentParser(description="Wayback Machine Wiki Importer for Agora Bridge")
-    parser.add_argument("--domain", required=True, help="Domain to recover (e.g. wiki.idiot.io, telavivmakers.org)")
+    parser.add_argument("--domain", required=False, help="Domain to recover (e.g. wiki.idiot.io, telavivmakers.org)")
+    parser.add_argument("--url", required=False, help="URL to recover (e.g. https://wiki.idiot.io)")
     parser.add_argument("--output-dir", required=True, help="Directory to save recovered markdown subnodes")
     parser.add_argument("--limit", type=int, default=300, help="Maximum number of pages to recover")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
@@ -189,19 +223,30 @@ def main():
     if args.verbose:
         L.setLevel(logging.DEBUG)
 
+    target = args.url or args.domain
+    if not target:
+        L.error("Either --domain or --url must be specified")
+        sys.exit(1)
+
+    domain = target.replace("https://", "").replace("http://", "").split("/")[0]
+
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
     os.makedirs(args.output_dir, exist_ok=True)
-    snapshots = discover_pages_via_cdx(args.domain, args.limit, ctx)
+    snapshots = discover_pages_via_cdx(target, args.limit, ctx)
 
     count = 0
     for orig_url, ts in snapshots:
-        fetch_and_convert_page(orig_url, ts, args.domain, args.output_dir, ctx)
-        count += 1
+        ok = fetch_and_convert_page(orig_url, ts, domain, args.output_dir, ctx)
+        if ok is not False:
+            count += 1
 
     L.info(f"Successfully processed {count} snapshots into {args.output_dir}")
+    if count == 0:
+        L.error(f"Failed to recover any snapshots for {target}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

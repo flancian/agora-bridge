@@ -23,6 +23,7 @@ import time
 import yaml
 import queue
 import sqlite3
+import sys
 from multiprocessing import Pool, JoinableQueue, Process
 import subprocess
 this_path = os.getcwd()
@@ -102,6 +103,7 @@ parser.add_argument('--reset', dest='reset', type=str2bool, default=False, help=
 parser.add_argument('--reset_only', dest='reset_only', type=str2bool, default=False, help='Whether do reset --hard instead of pulling.')
 parser.add_argument('--shallow', dest='shallow', type=str2bool, default=False, help='Whether to do a shallow git clone (--depth 1).')
 parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
+parser.add_argument('--once', dest='once', type=str2bool, default=False, help='Whether to run all pulls once and exit.')
 args = parser.parse_args()
 
 logging.basicConfig()
@@ -311,8 +313,7 @@ def mediawiki_import(tracker, target, url, path):
 def wayback_import(tracker, target, url, path):
     os.chdir(this_path)
     try:
-        domain = url.replace("https://", "").replace("http://", "").split("/")[0]
-        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_wayback.py", f"--domain={domain}", f"--output-dir={path}"], capture_output=True)
+        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_wayback.py", f"--url={url}", f"--output-dir={path}"], capture_output=True)
         if output.returncode == 0:
             tracker.update(target, url=url, success=True)
         else:
@@ -321,6 +322,27 @@ def wayback_import(tracker, target, url, path):
             tracker.update(target, url=url, success=False, error=error_msg)
     except Exception as e:
         L.error(f"Exception in wayback_import: {e}")
+        tracker.update(target, url=url, success=False, error=str(e))
+
+def website_import(tracker, target, url, path, prefix=None, feed=None, web=None):
+    os.chdir(this_path)
+    try:
+        cmd = ["uv", "run", "python3", f"{this_path}/import_website.py", f"--url={url}", f"--output-dir={path}"]
+        if prefix:
+            cmd.append(f"--prefix={prefix}")
+        if feed:
+            cmd.append(f"--feed={feed}")
+        if web:
+            cmd.append(f"--web-pattern={web}")
+        output = subprocess.run(cmd, capture_output=True)
+        if output.returncode == 0:
+            tracker.update(target, url=url, success=True)
+        else:
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            L.error(f"Error in website_import for {target}: {error_msg}")
+            tracker.update(target, url=url, success=False, error=error_msg)
+    except Exception as e:
+        L.error(f"Exception in website_import: {e}")
         tracker.update(target, url=url, success=False, error=str(e))
 
 def worker(Q, db_path):
@@ -334,10 +356,12 @@ def worker(Q, db_path):
             func(tracker, *args_for_func)
             Q.task_done()
             # if this is a pull, schedule the same task for another run later.
-            if func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, wayback_import):
+            if not args.once and func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, wayback_import, website_import):
                 Q.put(task)
             time.sleep(args.delay)
         except queue.Empty:
+            if args.once:
+                break
             continue
         except Exception as e:
             L.error(f"Worker exception: {e}")
@@ -374,6 +398,13 @@ def main():
         if item.get('format') == "wayback":
             Q.put((wayback_import, target, url, path))
             continue
+
+        if item.get('format') == "website":
+            prefix = item.get('prefix')
+            feed = item.get('feed')
+            web = item.get('web')
+            Q.put((website_import, target, url, path, prefix, feed, web))
+            continue
         
         # Default to git for all other formats (markdown, obsidian, foam, etc.)
         # schedule one 'clone' run for every garden, in case this is a new garden (or agora).
@@ -390,6 +421,9 @@ def main():
     for process in processes:
         process.start()
     Q.join()
+    L.info("All tasks completed.")
+    if args.once:
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

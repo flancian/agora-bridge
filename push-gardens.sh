@@ -20,6 +20,7 @@ sync_gardens() {
     for d in "$GARDEN_ROOT"/*; do
         if [ -d "$d/.git" ]; then
             cd "$d" || continue
+            find .git -type f -name '*.lock' -mmin +5 -delete 2>/dev/null || true
             
             # Check if remote is our hosted forge.
             # This is critical to avoid trying to push to external repos (GitHub/GitLab)

@@ -13,6 +13,7 @@ cd ~/agora/stream
 
 # YOLO :)
 while true; do 
+	find .git -type f -name '*.lock' -mmin +5 -delete 2>/dev/null || true
 	git add .
 	git commit -a -m "stream update"
 	git push

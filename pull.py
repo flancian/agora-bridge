@@ -135,18 +135,29 @@ def git_clone(tracker, target, url, path):
         L.error(f'Exception while cloning {url}: {e}')
 
 def clear_stale_lock(path):
-    lock_file = os.path.join(path, '.git', 'index.lock')
-    if os.path.exists(lock_file):
-        try:
-            mtime = os.path.getmtime(lock_file)
-            age = time.time() - mtime
-            if age > 300: # 5 minutes
-                L.warning(f"Removing stale lock file at {lock_file} (age: {age:.0f}s)")
-                os.remove(lock_file)
-                return True
-        except Exception as e:
-            L.error(f"Failed to check/remove lock file {lock_file}: {e}")
-    return False
+    """Removes any Git lock files (*.lock in .git/) older than 5 minutes."""
+    git_dir = os.path.join(path, '.git')
+    if not os.path.isdir(git_dir):
+        return False
+    removed = False
+    try:
+        now = time.time()
+        for root, _, files in os.walk(git_dir):
+            for file in files:
+                if file.endswith('.lock'):
+                    lock_file = os.path.join(root, file)
+                    try:
+                        mtime = os.path.getmtime(lock_file)
+                        age = now - mtime
+                        if age > 300: # 5 minutes
+                            L.warning(f"Removing stale lock file at {lock_file} (age: {age:.0f}s)")
+                            os.remove(lock_file)
+                            removed = True
+                    except Exception as e:
+                        L.error(f"Failed to check/remove lock file {lock_file}: {e}")
+    except Exception as e:
+        L.error(f"Error checking stale locks in {path}: {e}")
+    return removed
 
 def git_reset(path):
     L.info(f'Trying to git reset --hard')

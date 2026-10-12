@@ -20,8 +20,10 @@ export PATH=$HOME/.local/bin:${PATH}
 # Clean up lock files.
 ./clean.sh
 
-# Try to push as well as pull to update social media activity upstream if we have access :)
-./push.sh &
+# Try to push once as well as pull to update social media activity upstream if we have access :)
+if [ -d "$HOME/agora/stream/.git" ]; then
+    (cd "$HOME/agora/stream" && git add . && git commit -a -m "stream update" && git push) >/dev/null 2>&1 || true
+fi
 
 # Pull for the greater good! :)
-uv run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --reset True
+uv run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --reset True --once True

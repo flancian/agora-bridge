@@ -16,4 +16,4 @@
 echo "If this doesn't work, install uv to be able to run 'uv run' or see README.md."
 # This shouldn't be needed but it is when running as a systemd service for some reason.
 export PATH=$HOME/.local/bin:${PATH}
-uv run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 1 --reset_only True
+uv run ./pull.py --config ~/agora/sources.yaml --output-dir ~/agora --delay 1 --reset_only True --shallow True

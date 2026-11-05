@@ -17,6 +17,7 @@
 
 import argparse
 import glob
+import functools
 import html
 import logging
 import os
@@ -24,13 +25,21 @@ import subprocess
 import random
 import re
 import time
+import typing
 import urllib.request
 import xml.etree.ElementTree as ET
 import yaml
 
+# Optimization / bugfix for Mastodon.py issue #448:
+# AttribAccessDict.__setitem__ repeatedly calls get_type_hints() per attribute.
+# In Python 3.13+, get_type_hints() compiles annotations dynamically, causing 90-100% CPU spikes.
+typing.get_type_hints = functools.lru_cache(maxsize=1024)(typing.get_type_hints)
+
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from mastodon import Mastodon, StreamListener, MastodonAPIError, MastodonNetworkError
+import mastodon.types_base
+mastodon.types_base.get_type_hints = typing.get_type_hints
 
 # [[2022-11-17]]: changing approaches, bots should write by calling an Agora API; direct writing to disk was a hack.
 # common.py should have the methods to write resources to a node in any case.
@@ -82,6 +91,8 @@ class AgoraBot(StreamListener):
         self.last_reply_time = 0
         self._followers_cache = []
         self._followers_cache_time = 0
+        self._following_cache = []
+        self._following_cache_time = 0
         L.info(f'[[agora bot]] for {bot_username} started!')
 
     def send_toot(self, msg, in_reply_to_id=None):
@@ -282,12 +293,17 @@ class AgoraBot(StreamListener):
         self._followers_cache_time = now
         return followers
 
-    def get_following(self):
+    def get_following(self, max_age=300):
+        now = time.time()
+        if self._following_cache and (now - self._following_cache_time < max_age):
+            return self._following_cache
         batch = self.mastodon.account_following(self.mastodon.me().id, limit=80)
         following = []
         while batch:
             following += batch
             batch = self.mastodon.fetch_next(batch)
+        self._following_cache = following
+        self._following_cache_time = now
         return following
 
     def sync_remote_follower_posts(self, user):
@@ -318,14 +334,17 @@ class AgoraBot(StreamListener):
         except Exception as e:
             L.debug(f"Could not fetch RSS for remote user {acct}: {e}")
 
-    def get_statuses(self, user):
+    def get_statuses(self, user, catch_up=False):
         # Added on [[2025-03-23]] to work around weird Mastodon bug with sorting, and it seems generally useful so...
         batch = self.mastodon.account_statuses(user['id'], limit=40)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
+
+        if not catch_up:
+            return [post for post in (batch or []) if post.created_at >= cutoff_date]
+
         posts = []
         # Support for --catch-up-days to stop fetching extremely old posts.
         # Mastodon timestamps are timezone-aware (UTC).
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=args.catch_up_days)
-
         while batch:
             # If the newest post in this batch is already too old, we can stop entirely.
             # (Assuming batch is ordered newest -> oldest, which is standard).
@@ -526,6 +545,7 @@ def main():
     # We used to do lists -- maybe worth trying again with GTS?
     # L.info('trying to stream list.')
     # mastodon.stream_list(id=watching.id, listener=bot, run_async=True, reconnect_async=True)
+    caught_up_users = set()
     while True:
         L.info('[[agora mastodon bot]] is alive, trying to catch up with new friends and lost posts.')
 
@@ -545,21 +565,24 @@ def main():
                 L.warning(f"Error checking relationship or following {user.acct}: {e}")
                 pass
 
-            if args.catch_up:
+            is_catchup = args.catch_up and (user.id not in caught_up_users)
+            if is_catchup:
                 L.info(f"trying to catch up with any missed toots for user {user.acct}.")
                 bot.sync_remote_follower_posts(user)
-                # the mastodon API... sigh.
-                # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
-                #   (this might be a limitation of botsin.space?)
-                # mastodon.list_timeline() looked promising but always comes back empty with no reason.
-                # so we need to iterate per-user in the end. should be OK.
-                L.info(f'fetching latest toots by user {user.acct}')
-                # as of [[2025-03-23]], I'm here trying to figure out why suddenly the Agora bot is not seeing new toots.
-                # maybe the ordering of toots is implementation-dependent and we're supposed to iterate/sort client side?
-                # looking into Mastodon.py, there's not much to this method beyond a wrapper that calls __api_request to /<id>/statuses...
-                for status in bot.get_statuses(user):
-                    # this should handle deduping, so it's safe to always try to reply.
-                    bot.handle_update(status)
+                caught_up_users.add(user.id)
+
+            # the mastodon API... sigh.
+            # mastodon.timeline() maxes out at 40 toots, no matter what limit we set.
+            #   (this might be a limitation of botsin.space?)
+            # mastodon.list_timeline() looked promising but always comes back empty with no reason.
+            # so we need to iterate per-user in the end. should be OK.
+            L.info(f'fetching latest toots by user {user.acct} (catch_up={is_catchup})')
+            # as of [[2025-03-23]], I'm here trying to figure out why suddenly the Agora bot is not seeing new toots.
+            # maybe the ordering of toots is implementation-dependent and we're supposed to iterate/sort client side?
+            # looking into Mastodon.py, there's not much to this method beyond a wrapper that calls __api_request to /<id>/statuses...
+            for status in bot.get_statuses(user, catch_up=is_catchup):
+                # this should handle deduping, so it's safe to always try to reply.
+                bot.handle_update(status)
 
         # Cleanup: Unfollow users who have unfollowed us.
         following = bot.get_following()
@@ -572,6 +595,7 @@ def main():
             for user in following:
                  if user.id not in follower_ids:
                      L.info(f"User {user.acct} no longer follows us. Unfollowing.")
+                     caught_up_users.discard(user.id)
                      try:
                          mastodon.account_unfollow(user.id)
                      except MastodonAPIError as e:

@@ -154,6 +154,35 @@
         }
       );
 
+      apps = forAllSystems (
+        system:
+        let
+          pkg = self.packages.${system}.agora-bridge;
+        in
+        {
+          default = {
+            type = "app";
+            program = "${pkg}/bin/agora-bridge";
+          };
+          agora-bridge = {
+            type = "app";
+            program = "${pkg}/bin/agora-bridge";
+          };
+          pull = {
+            type = "app";
+            program = "${pkg}/bin/agora-pull";
+          };
+          import-stoa = {
+            type = "app";
+            program = "${pkg}/bin/agora-import-stoa";
+          };
+          feed = {
+            type = "app";
+            program = "${pkg}/bin/agora-feed";
+          };
+        }
+      );
+
       devShells = forAllSystems (
         system:
         let

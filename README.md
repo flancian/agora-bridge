@@ -62,6 +62,17 @@ To enable this, the Bridge needs the following environment variables:
 *   `AGORA_FORGEJO_URL`: The API URL (e.g., `https://git.anagora.org/api/v1`).
 *   `AGORA_FORGEJO_TOKEN`: An admin access token with `sudo` scope.
 
+## Running with Nix
+
+If you use [Nix with flakes enabled](https://wiki.nixos.org/wiki/Flakes), you can run `agora-bridge` and its utilities directly:
+
+```bash
+nix run github:flancian/agora-bridge
+nix run github:flancian/agora-bridge#pull -- --config ~/agora/sources.yaml --output-dir ~/agora --once True
+nix run github:flancian/agora-bridge#import-stoa -- --help
+nix run github:flancian/agora-bridge#feed -- --help
+```
+
 ## Development Setup
 
 This project uses `uv` for environment and package management. All dependencies are defined in `pyproject.toml`.

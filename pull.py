@@ -310,6 +310,20 @@ def mediawiki_import(tracker, target, url, path):
         L.error(f"Exception in mediawiki_import: {e}")
         tracker.update(target, url=url, success=False, error=str(e))
 
+def dokuwiki_import(tracker, target, url, path):
+    os.chdir(this_path)
+    try:
+        output = subprocess.run(["uv", "run", "python3", f"{this_path}/import_dokuwiki.py", f"--url={url}", f"--output-dir={path}"], capture_output=True)
+        if output.returncode == 0:
+            tracker.update(target, url=url, success=True)
+        else:
+            error_msg = output.stderr.decode('utf-8', errors='replace') if output.stderr else "Unknown error"
+            L.error(f"Error in dokuwiki_import for {target}: {error_msg}")
+            tracker.update(target, url=url, success=False, error=error_msg)
+    except Exception as e:
+        L.error(f"Exception in dokuwiki_import: {e}")
+        tracker.update(target, url=url, success=False, error=str(e))
+
 def wayback_import(tracker, target, url, path):
     os.chdir(this_path)
     try:
@@ -356,7 +370,7 @@ def worker(Q, db_path):
             func(tracker, *args_for_func)
             Q.task_done()
             # if this is a pull, schedule the same task for another run later.
-            if not args.once and func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, wayback_import, website_import):
+            if not args.once and func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, dokuwiki_import, wayback_import, website_import):
                 Q.put(task)
             time.sleep(args.delay)
         except queue.Empty:
@@ -393,6 +407,10 @@ def main():
 
         if item.get('format') == "mediawiki":
             Q.put((mediawiki_import, target, url, path))
+            continue
+
+        if item.get('format') == "dokuwiki":
+            Q.put((dokuwiki_import, target, url, path))
             continue
 
         if item.get('format') == "wayback":

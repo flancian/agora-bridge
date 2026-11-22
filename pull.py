@@ -324,7 +324,7 @@ def wayback_import(tracker, target, url, path):
         L.error(f"Exception in wayback_import: {e}")
         tracker.update(target, url=url, success=False, error=str(e))
 
-def website_import(tracker, target, url, path, prefix=None, feed=None, web=None):
+def website_import(tracker, target, url, path, prefix=None, feed=None, web=None, sitemap=None, feed_only=False, sitemap_only=False):
     os.chdir(this_path)
     try:
         cmd = ["uv", "run", "python3", f"{this_path}/import_website.py", f"--url={url}", f"--output-dir={path}"]
@@ -332,8 +332,14 @@ def website_import(tracker, target, url, path, prefix=None, feed=None, web=None)
             cmd.append(f"--prefix={prefix}")
         if feed:
             cmd.append(f"--feed={feed}")
+        if sitemap:
+            cmd.append(f"--sitemap={sitemap}")
         if web:
             cmd.append(f"--web-pattern={web}")
+        if feed_only:
+            cmd.append("--feed-only")
+        if sitemap_only:
+            cmd.append("--sitemap-only")
         output = subprocess.run(cmd, capture_output=True)
         if output.returncode == 0:
             tracker.update(target, url=url, success=True)
@@ -344,6 +350,16 @@ def website_import(tracker, target, url, path, prefix=None, feed=None, web=None)
     except Exception as e:
         L.error(f"Exception in website_import: {e}")
         tracker.update(target, url=url, success=False, error=str(e))
+
+
+def rss_import(tracker, target, url, path, prefix=None, web=None):
+    """Imports a standalone RSS/Atom feed source into an Agora garden."""
+    website_import(tracker, target, url, path, prefix=prefix, feed=url, web=web, feed_only=True)
+
+
+def sitemap_import(tracker, target, url, path, prefix=None, web=None):
+    """Imports pages discovered from an XML sitemap or sitemap index."""
+    website_import(tracker, target, url, path, prefix=prefix, sitemap=url, web=web, sitemap_only=True)
 
 def worker(Q, db_path):
     tracker = StatusTracker(db_path)
@@ -356,7 +372,7 @@ def worker(Q, db_path):
             func(tracker, *args_for_func)
             Q.task_done()
             # if this is a pull, schedule the same task for another run later.
-            if not args.once and func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, wayback_import, website_import):
+            if not args.once and func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, wayback_import, website_import, rss_import, sitemap_import):
                 Q.put(task)
             time.sleep(args.delay)
         except queue.Empty:
@@ -399,11 +415,24 @@ def main():
             Q.put((wayback_import, target, url, path))
             continue
 
+        if item.get('format') in ("rss", "atom", "feed"):
+            prefix = item.get('prefix')
+            web = item.get('web')
+            Q.put((rss_import, target, url, path, prefix, web))
+            continue
+
+        if item.get('format') == "sitemap":
+            prefix = item.get('prefix')
+            web = item.get('web')
+            Q.put((sitemap_import, target, url, path, prefix, web))
+            continue
+
         if item.get('format') == "website":
             prefix = item.get('prefix')
             feed = item.get('feed')
+            sitemap = item.get('sitemap')
             web = item.get('web')
-            Q.put((website_import, target, url, path, prefix, feed, web))
+            Q.put((website_import, target, url, path, prefix, feed, web, sitemap))
             continue
         
         # Default to git for all other formats (markdown, obsidian, foam, etc.)

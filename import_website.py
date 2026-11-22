@@ -22,6 +22,8 @@ and saves clean .md subnode files for the Agora.
 """
 
 import argparse
+import calendar
+from datetime import datetime, timezone
 import logging
 import os
 import re
@@ -30,6 +32,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from typing import List, Optional, Set, Tuple
 
 import feedparser
@@ -251,25 +254,178 @@ def discover_child_urls(start_url: str, prefix: str, limit: int, ctx: ssl.SSLCon
     return sorted(list(discovered))[:limit]
 
 
-def discover_feed_entries(feed_url: str, limit: int, ctx: ssl.SSLContext) -> List[Tuple[str, str, str]]:
-    """Fetches an RSS/Atom feed and returns a list of (url, title, raw_content)."""
+def _parse_iso_timestamp(value: Optional[str]) -> Optional[float]:
+    """Parses an ISO 8601 date/datetime string into a UTC Unix timestamp."""
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        if len(raw) == 10 and raw[4] == "-" and raw[7] == "-":
+            dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except ValueError:
+        return None
+
+
+def _matches_prefix(url: str, prefix: Optional[str]) -> bool:
+    """Checks whether url falls under prefix, excluding the exact prefix index itself."""
+    if not prefix:
+        return True
+    clean_prefix = prefix.rstrip("/")
+    clean_url = url.split("?")[0].rstrip("/")
+    return clean_url.startswith(clean_prefix) and clean_url != clean_prefix
+
+
+def discover_alternate_feeds(html: str, base_url: str) -> List[str]:
+    """Finds RSS/Atom <link rel="alternate"> URLs declared in an HTML document."""
+    feeds: List[str] = []
+    for tag in re.findall(r'<link\b[^>]*>', html, flags=re.IGNORECASE):
+        rel_m = re.search(r'\brel=["\']?([^"\'\s>]+)', tag, flags=re.IGNORECASE)
+        type_m = re.search(r'\btype=["\']?([^"\'\s>]+)', tag, flags=re.IGNORECASE)
+        href_m = re.search(r'\bhref=["\']([^"\']+)["\']', tag, flags=re.IGNORECASE)
+        if not (rel_m and type_m and href_m):
+            continue
+        if "alternate" not in rel_m.group(1).lower():
+            continue
+        mime = type_m.group(1).lower()
+        if mime in ("application/rss+xml", "application/atom+xml", "application/feed+json"):
+            full_url = urllib.parse.urljoin(base_url, href_m.group(1).strip())
+            if full_url not in feeds:
+                feeds.append(full_url)
+    return feeds
+
+
+def discover_sitemap_urls(
+    sitemap_url: str,
+    prefix: Optional[str],
+    limit: int,
+    ctx: ssl.SSLContext,
+    max_depth: int = 2,
+    _seen_sitemaps: Optional[Set[str]] = None,
+) -> List[Tuple[str, Optional[float]]]:
+    """Parses a sitemap.xml or sitemapindex and returns (url, lastmod_epoch) pairs."""
+    if max_depth < 0:
+        return []
+    seen = _seen_sitemaps if _seen_sitemaps is not None else set()
+    if sitemap_url in seen:
+        return []
+    seen.add(sitemap_url)
+
+    L.info(f"Fetching sitemap: {sitemap_url}")
+    try:
+        req = urllib.request.Request(sitemap_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+            raw = resp.read()
+        return parse_sitemap_xml(raw, prefix=prefix, limit=limit, ctx=ctx, max_depth=max_depth, seen_sitemaps=seen)
+    except Exception as e:
+        L.error(f"Failed to fetch sitemap {sitemap_url}: {e}")
+        return []
+
+
+def parse_sitemap_xml(
+    raw_xml: bytes,
+    prefix: Optional[str],
+    limit: int,
+    ctx: Optional[ssl.SSLContext] = None,
+    max_depth: int = 2,
+    seen_sitemaps: Optional[Set[str]] = None,
+) -> List[Tuple[str, Optional[float]]]:
+    """Parses sitemap XML bytes into (url, lastmod_epoch) pairs, recursing into sitemapindex."""
+    try:
+        root = ET.fromstring(raw_xml)
+    except ET.ParseError as e:
+        L.error(f"Invalid sitemap XML: {e}")
+        return []
+
+    root_name = root.tag.rsplit("}", 1)[-1].lower()
+    results: List[Tuple[str, Optional[float]]] = []
+    seen_urls: Set[str] = set()
+
+    if root_name == "sitemapindex" and max_depth > 0 and ctx is not None:
+        for child in root:
+            if child.tag.rsplit("}", 1)[-1].lower() != "sitemap":
+                continue
+            loc = None
+            for sub in child:
+                if sub.tag.rsplit("}", 1)[-1].lower() == "loc" and sub.text:
+                    loc = sub.text.strip()
+                    break
+            if loc and len(results) < limit:
+                nested = discover_sitemap_urls(
+                    loc, prefix=prefix, limit=limit - len(results), ctx=ctx,
+                    max_depth=max_depth - 1, _seen_sitemaps=seen_sitemaps,
+                )
+                for u, mtime in nested:
+                    if u not in seen_urls:
+                        seen_urls.add(u)
+                        results.append((u, mtime))
+        return results[:limit]
+
+    for child in root:
+        if child.tag.rsplit("}", 1)[-1].lower() != "url":
+            continue
+        loc = None
+        lastmod = None
+        for sub in child:
+            tag = sub.tag.rsplit("}", 1)[-1].lower()
+            if tag == "loc" and sub.text:
+                loc = sub.text.strip()
+            elif tag == "lastmod" and sub.text:
+                lastmod = _parse_iso_timestamp(sub.text)
+        if not loc:
+            continue
+        clean_url = loc.split("?")[0].rstrip("/")
+        if any(clean_url.lower().endswith(ext) for ext in SKIP_EXTENSIONS):
+            continue
+        if not _matches_prefix(loc, prefix):
+            continue
+        if loc not in seen_urls:
+            seen_urls.add(loc)
+            results.append((loc, lastmod))
+            if len(results) >= limit:
+                break
+
+    L.info(f"Discovered {len(results)} URLs from sitemap")
+    return results
+
+
+def parse_feed_bytes(raw: bytes, limit: int) -> List[Tuple[str, str, str, Optional[float]]]:
+    """Parses RSS/Atom bytes into (url, title, raw_content, updated_epoch) tuples."""
+    parsed = feedparser.parse(raw)
+    entries: List[Tuple[str, str, str, Optional[float]]] = []
+    for e in parsed.entries[:limit]:
+        link = e.get("link", "")
+        title = e.get("title", "")
+        content = ""
+        if "content" in e and len(e.content) > 0:
+            content = e.content[0].get("value", "")
+        elif "summary" in e:
+            content = e.get("summary", "")
+        ts = None
+        if "published_parsed" in e:
+            ts = e.get("published_parsed")
+        if "updated_parsed" in e and e.get("updated_parsed"):
+            ts = e.get("updated_parsed")
+        updated_epoch = float(calendar.timegm(ts)) if ts else None
+        if link:
+            entries.append((link, title, content, updated_epoch))
+    return entries
+
+
+def discover_feed_entries(feed_url: str, limit: int, ctx: ssl.SSLContext) -> List[Tuple[str, str, str, Optional[float]]]:
+    """Fetches an RSS/Atom feed and returns a list of (url, title, raw_content, updated_epoch)."""
     L.info(f"Fetching feed: {feed_url}")
     try:
         req = urllib.request.Request(feed_url, headers={"User-Agent": DEFAULT_USER_AGENT})
         with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
             raw = resp.read()
-        parsed = feedparser.parse(raw)
-        entries = []
-        for e in parsed.entries[:limit]:
-            link = e.get("link", "")
-            title = e.get("title", "")
-            content = ""
-            if "content" in e and len(e.content) > 0:
-                content = e.content[0].get("value", "")
-            elif "summary" in e:
-                content = e.get("summary", "")
-            if link:
-                entries.append((link, title, content))
+        entries = parse_feed_bytes(raw, limit)
         L.info(f"Discovered {len(entries)} entries from feed {feed_url}")
         return entries
     except Exception as e:
@@ -284,9 +440,11 @@ def fetch_and_save_page(
     domain: str,
     fallback_title: Optional[str] = None,
     feed_content: Optional[str] = None,
-    force: bool = False
+    force: bool = False,
+    remote_mtime: Optional[float] = None,
+    feed_only: bool = False,
 ) -> bool:
-    """Fetches a page, converts to Markdown, and writes .md file."""
+    """Fetches a page (or uses substantial feed_content directly), converts to Markdown, and writes .md file."""
     # Determine filename from URL slug early to avoid redundant network requests
     slug = url.rstrip("/").split("/")[-1]
     slug = urllib.parse.unquote(slug)
@@ -299,23 +457,32 @@ def fetch_and_save_page(
     filepath = os.path.join(output_dir, filename)
 
     if os.path.exists(filepath) and not force:
-        L.debug(f"Skipping already existing subnode: {filename}")
-        return True
+        if remote_mtime is None or remote_mtime <= os.path.getmtime(filepath) + 1:
+            L.debug(f"Skipping already existing subnode: {filename}")
+            return True
 
     try:
-        html = ""
-        # Fetch page HTML
-        req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
-        with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
+        body_html = ""
+        title = fallback_title or ""
 
-        title, body_html = extract_content_and_title(html, url)
-        if fallback_title and (not title or len(title) < 3):
-            title = fallback_title
+        # When running feed-only and the feed already provides substantial content, avoid extra HTTP fetches
+        feed_plain_len = len(re.sub(r"<[^>]+>", "", feed_content or "").strip()) if feed_content else 0
+        if feed_only and feed_content and feed_plain_len >= 150:
+            body_html = make_absolute_media(feed_content, url)
+            if not title:
+                title = urllib.parse.unquote(slug).replace("-", " ").replace("_", " ").title()
+        else:
+            req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
+            with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
 
-        # If body_html is thin but we have feed_content, use feed_content
-        if len(body_html) < 150 and feed_content and len(feed_content) > len(body_html):
-            body_html = feed_content
+            title, body_html = extract_content_and_title(html, url)
+            if fallback_title and (not title or len(title) < 3):
+                title = fallback_title
+
+            # If body_html is thin but we have feed_content, use feed_content
+            if len(body_html) < 150 and feed_content and len(feed_content) > len(body_html):
+                body_html = make_absolute_media(feed_content, url)
 
         if not body_html or len(body_html) < 50:
             L.warning(f"Skipping {url}: content too short ({len(body_html)} bytes)")
@@ -328,6 +495,8 @@ def fetch_and_save_page(
 
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(markdown)
+        if remote_mtime is not None:
+            os.utime(filepath, (remote_mtime, remote_mtime))
 
         L.debug(f"Saved: {filename} ({len(markdown)} bytes)")
         return True
@@ -338,12 +507,15 @@ def fetch_and_save_page(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Live Website & Feed Importer for Agora Bridge")
-    parser.add_argument("--url", required=True, help="Website URL to crawl (section URL or main page)")
+    parser = argparse.ArgumentParser(description="Live Website, Feed & Sitemap Importer for Agora Bridge")
+    parser.add_argument("--url", required=True, help="Website, feed, or sitemap URL to import")
     parser.add_argument("--output-dir", required=True, help="Directory to save recovered markdown subnodes")
-    parser.add_argument("--prefix", help="URL prefix filter for child links (defaults to --url or derived from web pattern)")
+    parser.add_argument("--prefix", help="URL prefix filter for child/sitemap/feed links")
     parser.add_argument("--web-pattern", help="Web pattern from sources.yaml (e.g. https://.../{slug})")
     parser.add_argument("--feed", help="Optional RSS/Atom feed URL to import")
+    parser.add_argument("--sitemap", help="Optional XML sitemap URL to discover pages from")
+    parser.add_argument("--feed-only", action="store_true", help="Import only from --feed without HTML crawling")
+    parser.add_argument("--sitemap-only", action="store_true", help="Import only from --sitemap without HTML crawling")
     parser.add_argument("--limit", type=int, default=200, help="Maximum number of pages to import")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
@@ -361,45 +533,82 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Determine prefix
-    prefix = args.prefix
-    if not prefix and args.web_pattern:
-        # Strip Wayback prefix if user had it configured
+    # Explicit --prefix filters sitemap/feed/crawl; fallback web_pattern/url prefix applies only to HTML crawling
+    crawl_prefix = args.prefix
+    if not crawl_prefix and args.web_pattern:
         clean_web = re.sub(r'^https?://web\.archive\.org/web/\*/', '', args.web_pattern)
         if "{slug}" in clean_web:
-            prefix = clean_web.split("{slug}")[0]
+            crawl_prefix = clean_web.split("{slug}")[0]
+    if not crawl_prefix:
+        crawl_prefix = args.url
 
-    if not prefix:
-        prefix = args.url
+    urls_to_process: List[Tuple[str, Optional[str], Optional[str], Optional[float]]] = []
+    existing_links: Set[str] = set()
 
-    urls_to_process: List[Tuple[str, Optional[str], Optional[str]]] = []
-
-    # If feed is specified, use feed entries
+    # 1. RSS/Atom feed discovery (when --feed is given)
     if args.feed:
         feed_entries = discover_feed_entries(args.feed, args.limit, ctx)
-        for link, title, content in feed_entries:
-            urls_to_process.append((link, title, content))
+        for link, title, content, updated_epoch in feed_entries:
+            if args.prefix and not _matches_prefix(link, args.prefix):
+                continue
+            if link not in existing_links:
+                urls_to_process.append((link, title, content, updated_epoch))
+                existing_links.add(link)
 
-    # Also discover child URLs from the page
-    child_urls = discover_child_urls(args.url, prefix, args.limit, ctx)
-    existing_links = {u for u, _, _ in urls_to_process}
-    for u in child_urls:
-        if u not in existing_links:
-            urls_to_process.append((u, None, None))
-            existing_links.add(u)
+    # 2. XML Sitemap discovery (when --sitemap is given)
+    if args.sitemap:
+        sitemap_entries = discover_sitemap_urls(args.sitemap, args.prefix, args.limit, ctx)
+        for link, lastmod_epoch in sitemap_entries:
+            if link not in existing_links:
+                urls_to_process.append((link, None, None, lastmod_epoch))
+                existing_links.add(link)
 
-    # If no child URLs found and no feed, attempt to import the single start URL
-    if not urls_to_process:
-        urls_to_process.append((args.url, None, None))
+    # 3. HTML child URL discovery (unless --feed-only or --sitemap-only)
+    if not args.feed_only and not args.sitemap_only:
+        child_urls = discover_child_urls(args.url, crawl_prefix, args.limit, ctx)
+        for u in child_urls:
+            if u not in existing_links:
+                urls_to_process.append((u, None, None, None))
+                existing_links.add(u)
+
+        # If no explicit feed/sitemap was given, try auto-discovering alternate RSS/Atom feeds on start_url
+        if not args.feed and not args.sitemap and len(urls_to_process) < args.limit:
+            try:
+                req = urllib.request.Request(args.url, headers={"User-Agent": DEFAULT_USER_AGENT})
+                with urllib.request.urlopen(req, context=ctx, timeout=12) as resp:
+                    start_html = resp.read().decode("utf-8", errors="ignore")
+                for alt_feed in discover_alternate_feeds(start_html, args.url)[:2]:
+                    for link, title, content, updated_epoch in discover_feed_entries(alt_feed, args.limit, ctx):
+                        if not _matches_prefix(link, crawl_prefix):
+                            continue
+                        if link not in existing_links and len(urls_to_process) < args.limit:
+                            urls_to_process.append((link, title, content, updated_epoch))
+                            existing_links.add(link)
+            except Exception as e:
+                L.debug(f"Alternate feed auto-discovery skipped for {args.url}: {e}")
+
+    # 4. If no URLs found and not in feed/sitemap-only mode, attempt to import the single start URL
+    if not urls_to_process and not args.feed_only and not args.sitemap_only:
+        urls_to_process.append((args.url, None, None, None))
 
     L.info(f"Importing {len(urls_to_process)} pages into {args.output_dir}...")
     success_count = 0
 
-    for url, title, feed_content in urls_to_process:
-        ok = fetch_and_save_page(url, args.output_dir, ctx, domain, fallback_title=title, feed_content=feed_content)
+    for url, title, feed_content, remote_mtime in urls_to_process:
+        ok = fetch_and_save_page(
+            url,
+            args.output_dir,
+            ctx,
+            domain,
+            fallback_title=title,
+            feed_content=feed_content,
+            remote_mtime=remote_mtime,
+            feed_only=args.feed_only,
+        )
         if ok:
             success_count += 1
-        time.sleep(0.15)
+        if not args.feed_only:
+            time.sleep(0.15)
 
     L.info(f"Finished: successfully imported {success_count} pages into {args.output_dir}")
 

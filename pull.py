@@ -77,6 +77,22 @@ class StatusTracker:
         except Exception as e:
             L.error(f"TRACKER: FAILED to update {target}: {e}")
 
+    def seconds_since_last_success(self, target):
+        """Returns seconds elapsed since the last successful sync for target, or None if never synced."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                row = conn.execute(
+                    "SELECT last_success FROM garden_status WHERE target = ?",
+                    (target,),
+                ).fetchone()
+                if not row or not row[0]:
+                    return None
+                last_dt = time.strptime(row[0], '%Y-%m-%d %H:%M:%S')
+                return max(0.0, time.time() - time.mktime(last_dt))
+        except Exception as e:
+            L.debug(f"TRACKER: Could not read last_success for {target}: {e}")
+            return None
+
 def dir_path(string):
     if not os.path.isdir(string):
         print(f"Trying to create {string}.")
@@ -102,7 +118,8 @@ parser.add_argument('--verbose', dest='verbose', type=str2bool, default=False, h
 parser.add_argument('--reset', dest='reset', type=str2bool, default=False, help='Whether to git reset --hard whenever a pull fails.')
 parser.add_argument('--reset_only', dest='reset_only', type=str2bool, default=False, help='Whether do reset --hard instead of pulling.')
 parser.add_argument('--shallow', dest='shallow', type=str2bool, default=False, help='Whether to do a shallow git clone (--depth 1).')
-parser.add_argument('--delay', dest='delay', type=float, default=0.1, help='Delay between pulls.')
+parser.add_argument('--delay', dest='delay', type=float, default=0.5, help='Delay between pulls in seconds (default: 0.5).')
+parser.add_argument('--min-interval', dest='min_interval', type=float, default=300.0, help='Minimum seconds between successive pulls for HTTP/wiki/feed sources after initial import (default: 300; 0 to disable).')
 parser.add_argument('--once', dest='once', type=str2bool, default=False, help='Whether to run all pulls once and exit.')
 args = parser.parse_args()
 
@@ -375,20 +392,49 @@ def sitemap_import(tracker, target, url, path, prefix=None, web=None):
     """Imports pages discovered from an XML sitemap or sitemap index."""
     website_import(tracker, target, url, path, prefix=prefix, sitemap=url, web=web, sitemap_only=True)
 
-def worker(Q, db_path):
+GENTLE_HTTP_IMPORTERS = (
+    fedwiki_import,
+    stoa_import,
+    mediawiki_import,
+    dokuwiki_import,
+    wayback_import,
+    website_import,
+    rss_import,
+    sitemap_import,
+)
+
+
+def worker(Q, db_path, target_intervals=None):
     tracker = StatusTracker(db_path)
+    target_intervals = target_intervals or {}
     while True:
         try:
             task = Q.get(block=True, timeout=60)
-            # task is (func, *args)
+            # task is (func, *args) where args[0] is target
             func = task[0]
             args_for_func = task[1:]
-            func(tracker, *args_for_func)
+            target = args_for_func[0] if args_for_func else None
+
+            skipped = False
+            if target and (func in GENTLE_HTTP_IMPORTERS or target in target_intervals):
+                interval = target_intervals.get(target, args.min_interval if func in GENTLE_HTTP_IMPORTERS else 0.0)
+                if interval and interval > 0:
+                    elapsed = tracker.seconds_since_last_success(target)
+                    if elapsed is not None and elapsed < interval:
+                        L.info(f"Skipping {target}: last synced {int(elapsed)}s ago (< {int(interval)}s cooldown)")
+                        skipped = True
+
+            if not skipped:
+                func(tracker, *args_for_func)
             Q.task_done()
             # if this is a pull, schedule the same task for another run later.
             if not args.once and func in (git_pull, fedwiki_import, stoa_import, mediawiki_import, dokuwiki_import, wayback_import, website_import, rss_import, sitemap_import):
                 Q.put(task)
-            time.sleep(args.delay)
+            # Avoid tight spinning in daemon mode when sources are cooling down
+            if skipped and not args.once:
+                time.sleep(max(args.delay, 5.0))
+            else:
+                time.sleep(args.delay)
         except queue.Empty:
             if args.once:
                 break
@@ -408,11 +454,17 @@ def main():
     db_path = os.path.join(args.output_dir, 'bridge.db')
     # Initialize the tracker here to create the DB file before workers start
     tracker = StatusTracker(db_path)
+    target_intervals = {}
 
     for item in config:
         target = item['target']
         url = item['url']
         path = os.path.join(args.output_dir, target)
+        if 'interval' in item and item['interval'] is not None:
+            try:
+                target_intervals[target] = float(item['interval'])
+            except (TypeError, ValueError):
+                L.warning(f"Invalid interval for {target}: {item['interval']}")
         if item.get('format') == "fedwiki":
             Q.put((fedwiki_import, target, url, path))
             continue
@@ -461,7 +513,7 @@ def main():
 
     processes = []
     for i in range(WORKERS):
-        worker_process = Process(target=worker, args=(Q, db_path), daemon=True, name='worker_process_{}'.format(i))
+        worker_process = Process(target=worker, args=(Q, db_path, target_intervals), daemon=True, name='worker_process_{}'.format(i))
         processes.append(worker_process)
 
     L.info(f"Starting {WORKERS} workers to execute work items. Status tracked in {db_path}")

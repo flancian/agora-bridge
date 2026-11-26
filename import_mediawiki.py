@@ -21,18 +21,25 @@ converts wikitext to Markdown (preserving [[wikilinks]]), and saves .md subnode 
 """
 
 import argparse
+import datetime
 import json
 import logging
 import os
 import re
 import ssl
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 L = logging.getLogger("import_mediawiki")
+
+DEFAULT_USER_AGENT = "AgoraBridge/1.0 (+https://anagora.org/agora-bridge)"
+STATE_FILENAME = ".mediawiki_sync_state.json"
+
 
 def wikitext_to_markdown(text: str) -> str:
     """
@@ -75,23 +82,157 @@ def wikitext_to_markdown(text: str) -> str:
 
     return "\n".join(md_lines)
 
+
 def sanitize_filename(title: str) -> str:
     """Sanitizes a page title for use as a filesystem filename."""
     filename = title.replace("/", "-").replace("\\", "-").replace(":", "-")
     filename = re.sub(r'\s+', ' ', filename).strip()
     return filename
 
-def fetch_api_pages(api_url: str, output_dir: str):
-    """Fetches all pages from a MediaWiki API and saves them to output_dir."""
-    L.info(f"Fetching pages via MediaWiki API: {api_url}")
+
+def _utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _load_sync_state(output_dir: str) -> dict:
+    state_path = os.path.join(output_dir, STATE_FILENAME)
+    if not os.path.exists(state_path):
+        return {}
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        L.warning(f"Could not read sync state {state_path}: {e}")
+        return {}
+
+
+def _save_sync_state(output_dir: str, state: dict):
+    state_path = os.path.join(output_dir, STATE_FILENAME)
+    try:
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        L.warning(f"Could not write sync state {state_path}: {e}")
+
+
+def _write_if_changed(fpath: str, content: str) -> bool:
+    """Writes content to fpath only if it differs from existing content, preserving mtimes."""
+    if os.path.exists(fpath):
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                if f.read() == content:
+                    return False
+        except Exception:
+            pass
+    with open(fpath, "w", encoding="utf-8") as f:
+        f.write(content)
+    return True
+
+
+def _api_get_json(api_url: str, params: dict, ctx: ssl.SSLContext, retries: int = 2) -> dict:
+    """Makes a polite MediaWiki API GET request with 429/503 Retry-After backoff."""
+    query_str = urllib.parse.urlencode(params)
+    full_url = f"{api_url}?{query_str}" if "?" not in api_url else f"{api_url}&{query_str}"
+    req = urllib.request.Request(full_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and attempt < retries:
+                retry_after = e.headers.get("Retry-After")
+                wait_s = 5.0
+                if retry_after and retry_after.isdigit():
+                    wait_s = min(float(retry_after), 60.0)
+                else:
+                    wait_s = 5.0 * (attempt + 1)
+                L.warning(f"HTTP {e.code} from {api_url}; backing off {wait_s}s...")
+                time.sleep(wait_s)
+                continue
+            raise
+
+
+def fetch_recent_changes(api_url: str, since_ts: str, output_dir: str, ctx: ssl.SSLContext, delay: float = 0.5) -> int:
+    """
+    Incrementally fetches only pages edited or created since `since_ts`
+    using MediaWiki's `list=recentchanges` API.
+    """
+    L.info(f"Checking MediaWiki recentchanges since {since_ts}: {api_url}")
+    changed_page_ids = []
+    seen_ids = set()
+    rccontinue = None
+
+    while True:
+        params = {
+            "action": "query",
+            "list": "recentchanges",
+            "rcnamespace": "0",
+            "rctype": "edit|new",
+            "rclimit": "500",
+            "rcend": since_ts,
+            "format": "json",
+        }
+        if rccontinue:
+            params["rccontinue"] = rccontinue
+
+        data = _api_get_json(api_url, params, ctx)
+        changes = data.get("query", {}).get("recentchanges", [])
+        for rc in changes:
+            pid = rc.get("pageid")
+            if pid and str(pid) not in seen_ids:
+                seen_ids.add(str(pid))
+                changed_page_ids.append(str(pid))
+
+        if "continue" in data and "rccontinue" in data["continue"]:
+            rccontinue = data["continue"]["rccontinue"]
+            if delay > 0:
+                time.sleep(delay)
+        else:
+            break
+
+    if not changed_page_ids:
+        L.info(f"No MediaWiki changes since {since_ts} for {api_url} (1 API call).")
+        return 0
+
+    L.info(f"Found {len(changed_page_ids)} changed pages since {since_ts}; fetching content in batches.")
+    written = 0
+    for i in range(0, len(changed_page_ids), 50):
+        batch = changed_page_ids[i:i + 50]
+        written += fetch_page_contents(api_url, batch, output_dir, ctx)
+        if delay > 0 and i + 50 < len(changed_page_ids):
+            time.sleep(delay)
+
+    L.info(f"Incremental MediaWiki sync complete: {len(changed_page_ids)} checked, {written} updated in {output_dir}")
+    return len(changed_page_ids)
+
+
+def fetch_api_pages(api_url: str, output_dir: str, delay: float = 0.5, full: bool = False):
+    """Fetches pages from a MediaWiki API (incrementally after initial import) and saves them to output_dir."""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
 
     os.makedirs(output_dir, exist_ok=True)
+    sync_started_ts = _utc_now_iso()
+    state = _load_sync_state(output_dir)
 
+    # Check if we already have an initial import (either via state file or existing .md files + state)
+    last_sync_ts = state.get("last_sync_ts")
+    if last_sync_ts and not full:
+        try:
+            fetch_recent_changes(api_url, last_sync_ts, output_dir, ctx, delay=delay)
+            state["last_sync_ts"] = sync_started_ts
+            state["api_url"] = api_url
+            _save_sync_state(output_dir, state)
+            return
+        except Exception as e:
+            L.warning(f"Incremental recentchanges sync failed for {api_url} ({e}); falling back to full sync.")
+
+    L.info(f"Running full MediaWiki API import: {api_url} (delay={delay}s)")
     apcontinue = None
     page_count = 0
+    written_count = 0
 
     while True:
         params = {
@@ -103,15 +244,10 @@ def fetch_api_pages(api_url: str, output_dir: str):
         if apcontinue:
             params["apcontinue"] = apcontinue
 
-        query_str = urllib.parse.urlencode(params)
-        full_url = f"{api_url}?{query_str}" if "?" not in api_url else f"{api_url}&{query_str}"
-
-        req = urllib.request.Request(full_url, headers={"User-Agent": "AgoraBridge/1.0"})
         try:
-            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            data = _api_get_json(api_url, params, ctx)
         except Exception as e:
-            L.error(f"Failed API request to {full_url}: {e}")
+            L.error(f"Failed API request to {api_url}: {e}")
             break
 
         query = data.get("query", {})
@@ -120,20 +256,33 @@ def fetch_api_pages(api_url: str, output_dir: str):
         if not pages:
             break
 
+        if delay > 0:
+            time.sleep(delay)
+
         # Fetch revision contents in batches
         page_ids = [str(p["pageid"]) for p in pages]
-        fetch_page_contents(api_url, page_ids, output_dir, ctx)
+        written_count += fetch_page_contents(api_url, page_ids, output_dir, ctx)
         page_count += len(pages)
 
         if "continue" in data and "apcontinue" in data["continue"]:
             apcontinue = data["continue"]["apcontinue"]
+            if delay > 0:
+                time.sleep(delay)
         else:
             break
 
-    L.info(f"Successfully processed {page_count} pages via API into {output_dir}")
+    if page_count > 0:
+        _save_sync_state(output_dir, {
+            "last_sync_ts": sync_started_ts,
+            "api_url": api_url,
+            "total_pages": page_count,
+        })
 
-def fetch_page_contents(api_url: str, page_ids: list, output_dir: str, ctx: ssl.SSLContext):
-    """Fetches content for a list of page_ids and writes them to output_dir."""
+    L.info(f"Successfully processed {page_count} pages ({written_count} written/updated) via API into {output_dir}")
+
+
+def fetch_page_contents(api_url: str, page_ids: list, output_dir: str, ctx: ssl.SSLContext) -> int:
+    """Fetches content for a list of page_ids and writes changed files to output_dir."""
     ids_str = "|".join(page_ids)
     params = {
         "action": "query",
@@ -143,33 +292,31 @@ def fetch_page_contents(api_url: str, page_ids: list, output_dir: str, ctx: ssl.
         "rvprop": "content",
         "format": "json"
     }
-    query_str = urllib.parse.urlencode(params)
-    full_url = f"{api_url}?{query_str}" if "?" not in api_url else f"{api_url}&{query_str}"
-
-    req = urllib.request.Request(full_url, headers={"User-Agent": "AgoraBridge/1.0"})
+    written = 0
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            pages_dict = data.get("query", {}).get("pages", {})
-            for pid, pdata in pages_dict.items():
-                title = pdata.get("title", f"Page-{pid}")
-                revisions = pdata.get("revisions", [])
-                if not revisions:
-                    continue
-                
-                rev = revisions[0]
-                slots = rev.get("slots", {})
-                main_slot = slots.get("main", {})
-                wikitext = main_slot.get("*") or rev.get("*", "")
+        data = _api_get_json(api_url, params, ctx)
+        pages_dict = data.get("query", {}).get("pages", {})
+        for pid, pdata in pages_dict.items():
+            title = pdata.get("title", f"Page-{pid}")
+            revisions = pdata.get("revisions", [])
+            if not revisions:
+                continue
 
-                markdown = wikitext_to_markdown(wikitext)
-                fname = sanitize_filename(title) + ".md"
-                fpath = os.path.join(output_dir, fname)
+            rev = revisions[0]
+            slots = rev.get("slots", {})
+            main_slot = slots.get("main", {})
+            wikitext = main_slot.get("*") or rev.get("*", "")
 
-                with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(markdown)
+            markdown = wikitext_to_markdown(wikitext)
+            fname = sanitize_filename(title) + ".md"
+            fpath = os.path.join(output_dir, fname)
+
+            if _write_if_changed(fpath, markdown):
+                written += 1
     except Exception as e:
         L.error(f"Error fetching page contents: {e}")
+    return written
+
 
 def parse_xml_dump(dump_path: str, output_dir: str):
     """Parses a MediaWiki XML dump file and saves pages to output_dir."""
@@ -205,17 +352,19 @@ def parse_xml_dump(dump_path: str, output_dir: str):
         fname = sanitize_filename(title) + ".md"
         fpath = os.path.join(output_dir, fname)
 
-        with open(fpath, "w", encoding="utf-8") as f:
-            f.write(markdown)
+        _write_if_changed(fpath, markdown)
         page_count += 1
 
     L.info(f"Successfully imported {page_count} pages from XML dump into {output_dir}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="MediaWiki Importer for Agora Bridge")
     parser.add_argument("--url", help="MediaWiki API URL (e.g., https://wiki.sgmk-ssam.ch/api.php)")
     parser.add_argument("--dump-file", help="Path to MediaWiki XML export dump")
     parser.add_argument("--output-dir", required=True, help="Directory to save converted markdown files")
+    parser.add_argument("--delay", type=float, default=0.5, help="Polite delay in seconds between API requests (default: 0.5)")
+    parser.add_argument("--full", action="store_true", help="Force a full re-import instead of incremental recentchanges sync")
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
@@ -230,7 +379,8 @@ def main():
     if args.dump_file:
         parse_xml_dump(args.dump_file, args.output_dir)
     elif args.url:
-        fetch_api_pages(args.url, args.output_dir)
+        fetch_api_pages(args.url, args.output_dir, delay=args.delay, full=args.full)
+
 
 if __name__ == "__main__":
     main()

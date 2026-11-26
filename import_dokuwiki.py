@@ -23,24 +23,30 @@ and saves .md subnode files organized by namespace.
 """
 
 import argparse
+import calendar
+import datetime
 import html as html_lib
+import json
 import logging
 import os
 import re
 import ssl
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
 from typing import Dict, List, Optional, Set, Tuple
 
+import feedparser
 import html2text
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 L = logging.getLogger("import_dokuwiki")
 
 DEFAULT_USER_AGENT = "AgoraBridge/1.0 (+https://anagora.org/agora-bridge)"
+STATE_FILENAME = ".dokuwiki_sync_state.json"
 
 # Stock DokuWiki system/boilerplate pages skipped by default.
 DEFAULT_SKIP_PAGES: Set[str] = {
@@ -70,10 +76,24 @@ def normalize_doku_url(url: str) -> str:
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
 
 
-def fetch_text(url: str, ctx: ssl.SSLContext, timeout: int = 20) -> str:
+def fetch_text(url: str, ctx: ssl.SSLContext, timeout: int = 20, retries: int = 2) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
-    with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and attempt < retries:
+                retry_after = e.headers.get("Retry-After")
+                wait_s = 5.0
+                if retry_after and retry_after.isdigit():
+                    wait_s = min(float(retry_after), 60.0)
+                else:
+                    wait_s = 5.0 * (attempt + 1)
+                L.warning(f"HTTP {e.code} from {url}; backing off {wait_s}s...")
+                time.sleep(wait_s)
+                continue
+            raise
 
 
 def discover_pages(
@@ -386,12 +406,148 @@ def dokuwiki_html_to_markdown(
     return md
 
 
+def _load_sync_state(output_dir: str) -> dict:
+    state_path = os.path.join(output_dir, STATE_FILENAME)
+    if not os.path.exists(state_path):
+        return {}
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        L.warning(f"Could not read sync state {state_path}: {e}")
+        return {}
+
+
+def _save_sync_state(output_dir: str, state: dict):
+    state_path = os.path.join(output_dir, STATE_FILENAME)
+    try:
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        L.warning(f"Could not write sync state {state_path}: {e}")
+
+
+def _doku_feed_url(base_url: str) -> str:
+    """Derives DokuWiki's feed.php URL from normalized doku.php base_url."""
+    if base_url.endswith("/doku.php"):
+        return base_url[:-len("/doku.php")] + "/feed.php?type=rss2&num=50"
+    return base_url.rsplit("/", 1)[0] + "/feed.php?type=rss2&num=50"
+
+
+def _extract_page_id_from_link(link: str, base_url: str) -> Optional[str]:
+    """Extracts a DokuWiki page_id from a feed entry link."""
+    parsed = urllib.parse.urlparse(link)
+    qs = urllib.parse.parse_qs(parsed.query)
+    if "id" in qs and qs["id"]:
+        return qs["id"][0].strip(":").lower()
+    base_path = urllib.parse.urlparse(base_url).path.rstrip("/")
+    if parsed.path.startswith(base_path + "/"):
+        raw_id = urllib.parse.unquote(parsed.path[len(base_path) + 1:]).strip("/")
+        if raw_id:
+            return raw_id.replace("/", ":").strip(":").lower()
+    return None
+
+
+def _check_feed_changes(
+    base_url: str,
+    since_epoch: float,
+    ctx: ssl.SSLContext,
+    include_defaults: bool = False,
+) -> Optional[List[str]]:
+    """
+    Fetches DokuWiki's feed.php and returns a list of page_ids modified since `since_epoch`.
+    Returns None if feed.php is unavailable or unparseable (signaling fallback to full sync).
+    """
+    feed_url = _doku_feed_url(base_url)
+    try:
+        xml_text = fetch_text(feed_url, ctx)
+    except Exception as e:
+        L.warning(f"Could not fetch DokuWiki feed {feed_url}: {e}")
+        return None
+
+    parsed_feed = feedparser.parse(xml_text)
+    if getattr(parsed_feed, "bozo", False) and not parsed_feed.entries:
+        L.warning(f"Failed to parse DokuWiki feed {feed_url}")
+        return None
+
+    changed_ids: List[str] = []
+    seen: Set[str] = set()
+    # 60s overlap buffer to protect against minor clock skew
+    cutoff = since_epoch - 60.0
+
+    for entry in parsed_feed.entries:
+        ts_struct = entry.get("updated_parsed") or entry.get("published_parsed")
+        if ts_struct:
+            entry_epoch = float(calendar.timegm(ts_struct))
+            if entry_epoch < cutoff:
+                continue
+        link = entry.get("link", "")
+        pid = _extract_page_id_from_link(link, base_url)
+        if not pid:
+            continue
+        if not include_defaults and pid in DEFAULT_SKIP_PAGES:
+            continue
+        if pid not in seen:
+            seen.add(pid)
+            changed_ids.append(pid)
+
+    return changed_ids
+
+
+def _export_single_page(
+    page_id: str,
+    title: str,
+    base_url: str,
+    url_style: str,
+    target_map: Dict[str, str],
+    output_dir: str,
+    ctx: ssl.SSLContext,
+) -> Tuple[bool, bool]:
+    """Exports one DokuWiki page. Returns (ok, written)."""
+    page_url = canonical_page_url(base_url, page_id, url_style)
+    export_url = f"{base_url}?id={urllib.parse.quote(page_id, safe=':')}&do=export_xhtmlbody"
+
+    try:
+        body_html = fetch_text(export_url, ctx)
+        if not body_html or len(body_html.strip()) < 20:
+            L.warning(f"Skipping {page_id}: empty export_xhtmlbody response")
+            return False, False
+
+        markdown = dokuwiki_html_to_markdown(body_html, base_url, page_url, title, target_map)
+
+        parts = page_id.split(":")
+        ns_dir = os.path.join(output_dir, *parts[:-1]) if len(parts) > 1 else output_dir
+        os.makedirs(ns_dir, exist_ok=True)
+
+        target_name = target_map.get(page_id) or sanitize_filename(title or parts[-1])
+        filename = f"{target_name}.md"
+        filepath = os.path.join(ns_dir, filename)
+
+        existing = None
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                existing = f.read()
+
+        if existing != markdown:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(markdown)
+            L.debug(f"Wrote {os.path.relpath(filepath, output_dir)} ({len(markdown)} bytes)")
+            return True, True
+        else:
+            L.debug(f"Unchanged {os.path.relpath(filepath, output_dir)}")
+            return True, False
+    except Exception as e:
+        L.warning(f"Error importing {page_id} ({export_url}): {e}")
+        return False, False
+
+
 def import_dokuwiki(
     url: str,
     output_dir: str,
     limit: int = 1000,
-    delay: float = 0.1,
+    delay: float = 0.5,
     include_defaults: bool = False,
+    full: bool = False,
 ) -> int:
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -399,6 +555,44 @@ def import_dokuwiki(
 
     base_url = normalize_doku_url(url)
     os.makedirs(output_dir, exist_ok=True)
+    sync_started_epoch = time.time()
+    state = _load_sync_state(output_dir)
+
+    # Incremental sync via feed.php after initial import
+    if not full and state.get("last_sync_epoch") and state.get("target_map"):
+        changed_ids = _check_feed_changes(
+            base_url,
+            float(state["last_sync_epoch"]),
+            ctx,
+            include_defaults=include_defaults,
+        )
+        if changed_ids is not None:
+            if not changed_ids:
+                L.info(f"No DokuWiki changes in feed.php since last sync for {base_url} (1 request).")
+                state["last_sync_epoch"] = sync_started_epoch
+                _save_sync_state(output_dir, state)
+                return len(state["target_map"])
+
+            L.info(f"Found {len(changed_ids)} changed DokuWiki pages via feed.php; updating incrementally.")
+            target_map = dict(state["target_map"])
+            pages_titles = dict(state.get("pages", {}))
+            url_style = state.get("url_style", "path")
+            written_count = 0
+            for pid in changed_ids[:limit]:
+                title = pages_titles.get(pid, pid.split(":")[-1])
+                if pid not in target_map:
+                    target_map[pid] = sanitize_filename(title)
+                ok, written = _export_single_page(pid, title, base_url, url_style, target_map, output_dir, ctx)
+                if written:
+                    written_count += 1
+                if delay > 0:
+                    time.sleep(delay)
+
+            state["last_sync_epoch"] = sync_started_epoch
+            state["target_map"] = target_map
+            _save_sync_state(output_dir, state)
+            L.info(f"Incremental DokuWiki sync complete: {len(changed_ids)} checked, {written_count} updated.")
+            return len(target_map)
 
     pages, url_style = discover_pages(base_url, ctx, delay=delay, include_defaults=include_defaults)
     if not pages:
@@ -408,50 +602,29 @@ def import_dokuwiki(
     target_map = build_target_map(pages)
     page_ids = sorted(pages.keys())[:limit]
 
-    L.info(f"Importing {len(page_ids)} DokuWiki pages into {output_dir}...")
+    L.info(f"Importing {len(page_ids)} DokuWiki pages into {output_dir} (delay={delay}s)...")
     success_count = 0
     written_count = 0
 
     for page_id in page_ids:
         title = pages[page_id]
-        page_url = canonical_page_url(base_url, page_id, url_style)
-        export_url = f"{base_url}?id={urllib.parse.quote(page_id, safe=':')}&do=export_xhtmlbody"
-
-        try:
-            body_html = fetch_text(export_url, ctx)
-            if not body_html or len(body_html.strip()) < 20:
-                L.warning(f"Skipping {page_id}: empty export_xhtmlbody response")
-                continue
-
-            markdown = dokuwiki_html_to_markdown(body_html, base_url, page_url, title, target_map)
-
-            parts = page_id.split(":")
-            ns_dir = os.path.join(output_dir, *parts[:-1]) if len(parts) > 1 else output_dir
-            os.makedirs(ns_dir, exist_ok=True)
-
-            filename = f"{target_map[page_id]}.md"
-            filepath = os.path.join(ns_dir, filename)
-
-            # Only write if content changed so mtimes remain stable
-            existing = None
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    existing = f.read()
-
-            if existing != markdown:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(markdown)
-                written_count += 1
-                L.debug(f"Wrote {os.path.relpath(filepath, output_dir)} ({len(markdown)} bytes)")
-            else:
-                L.debug(f"Unchanged {os.path.relpath(filepath, output_dir)}")
-
+        ok, written = _export_single_page(page_id, title, base_url, url_style, target_map, output_dir, ctx)
+        if ok:
             success_count += 1
-        except Exception as e:
-            L.warning(f"Error importing {page_id} ({export_url}): {e}")
+        if written:
+            written_count += 1
 
         if delay > 0:
             time.sleep(delay)
+
+    if success_count > 0:
+        _save_sync_state(output_dir, {
+            "last_sync_epoch": sync_started_epoch,
+            "base_url": base_url,
+            "url_style": url_style,
+            "target_map": target_map,
+            "pages": pages,
+        })
 
     L.info(
         f"Finished: {success_count}/{len(page_ids)} pages processed "
@@ -481,13 +654,18 @@ def main():
     parser.add_argument(
         "--delay",
         type=float,
-        default=0.1,
-        help="Polite delay in seconds between HTTP requests (default: 0.1)",
+        default=0.5,
+        help="Polite delay in seconds between HTTP requests (default: 0.5)",
     )
     parser.add_argument(
         "--include-defaults",
         action="store_true",
         help="Include default DokuWiki pages (sidebar, playground, wiki:syntax, etc.)",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Force a full re-import instead of incremental feed.php sync",
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
@@ -501,6 +679,7 @@ def main():
         limit=args.limit,
         delay=args.delay,
         include_defaults=args.include_defaults,
+        full=args.full,
     )
     if count == 0:
         sys.exit(1)
